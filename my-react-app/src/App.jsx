@@ -101,7 +101,6 @@ const MANAGER_TABS = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'incidentReports', label: 'Incident Reports' },
   { id: 'ongoingTickets', label: 'Ongoing Tickets' },
-  { id: 'engineers', label: 'Available Engineers' },
   { id: 'pumpHistory', label: 'Pump History' },
 ]
 
@@ -1045,34 +1044,27 @@ function App() {
   }
 
   return (
-    <div className="ops-shell">
-      <header className="topbar surface">
-        <div>
-          <div className="eyebrow">CHEVRON HACK ISLAND</div>
-          <h1>Island Operations Command</h1>
-          <p className="topbar-subtitle">
-            Manager and engineer surfaces sharing the same live telemetry, incidents, and Gemini-assisted operations context.
-          </p>
-        </div>
+  <div className="ops-shell">
+  <header className="topbar surface" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+  <div>
+    <h1>Flare</h1>
+  </div>
 
-        <div className="topbar-controls">
-          <div className="user-badge">
-            <span>{authUser.role.toUpperCase()}</span>
-            <strong>{authUser.name}</strong>
-            <button type="button" className="link-btn" onClick={handleLogout}>
-              Logout
-            </button>
-          </div>
-          <div className="role-static">
-            <span>{isManager ? 'Managerial Side' : 'Engineer Side'}</span>
-          </div>
-          <div className={`risk-chip risk-chip-${riskBand}`}>
-            <span>Risk Heat Score</span>
-            <strong>{riskScore}</strong>
-          </div>
-        </div>
-      </header>
+  <div className={`risk-chip risk-chip-${riskBand}`}>
+    <span>Risk Heat Score</span>
+    <strong>{riskScore}</strong>
+  </div>
 
+  <div className="topbar-controls">
+    <div className="user-badge">
+      <span>{authUser.role.toUpperCase()}</span>
+      <strong>{authUser.name}</strong>
+      <button type="button" className="link-btn" onClick={handleLogout}>
+        Logout
+      </button>
+    </div>
+  </div>
+</header>
       <section className="kpi-strip">
         <MetricCard label="Uptime %" value={kpis.uptime} detail="Rolling 24h asset availability" tone="ok" />
         <MetricCard
@@ -1222,9 +1214,7 @@ function App() {
                 <div className="panel-header">
                   <div>
                     <div className="eyebrow">LIVE TELEMETRY</div>
-                    <h2>Pump Fleet</h2>
                   </div>
-                  <p>{summaryLine}</p>
                 </div>
 
                 <div className="pump-list">
@@ -1313,16 +1303,11 @@ function App() {
                 <div className="panel-header">
                   <div>
                     <div className="eyebrow">LIVE QA VIA AI</div>
-                    <h2>Operations Copilot</h2>
                   </div>
-                  <p>{riskScore}/100 overall island health</p>
                 </div>
 
                 <div className="ai-context">
                   <h3>LIVE CONTEXT SNAPSHOT</h3>
-                  <p>
-                    Selected pump: <strong>{telemetryContext.selectedPump?.id ?? 'NONE'}</strong>
-                  </p>
                   <p>
                     Faulted pumps: <strong>{telemetryContext.faultedPumps.join(', ') || 'NONE'}</strong>
                   </p>
@@ -1339,25 +1324,6 @@ function App() {
                       <p>{message.text}</p>
                     </div>
                   ))}
-                </div>
-
-                <div className="ai-prompts">
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() => setChatInput('Summarize the island for executives in three bullets.')}
-                  >
-                    EXEC SUMMARY
-                  </button>
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() =>
-                      setChatInput('Which open ticket should be escalated first and what is the production impact?')
-                    }
-                  >
-                    TRIAGE PRIORITY
-                  </button>
                 </div>
 
                 <form
@@ -1635,115 +1601,6 @@ function App() {
                     </button>
                   ))}
                 </div>
-              </div>
-            </section>
-          )}
-
-          {managerTab === 'engineers' && (
-            <section className="surface manager-surface">
-              <div className="panel-header">
-                <div>
-                  <div className="eyebrow">ROSTER STATUS</div>
-                  <h2>Available Engineers</h2>
-                </div>
-                <p>Dispatch recommendation refreshes from live incident state.</p>
-              </div>
-
-              <div className="account-admin">
-                <div className="account-admin-head">
-                  <h3>Create Engineer Account</h3>
-                  <p>Manager-only: create login access and bind it to an engineer profile.</p>
-                </div>
-                <form className="account-form" onSubmit={createEngineerAccount}>
-                  <input
-                    type="text"
-                    placeholder="Full name"
-                    value={accountForm.name}
-                    onChange={(event) =>
-                      setAccountForm((previous) => ({ ...previous, name: event.target.value }))
-                    }
-                  />
-                  <input
-                    type="text"
-                    placeholder="Username"
-                    value={accountForm.username}
-                    onChange={(event) =>
-                      setAccountForm((previous) => ({ ...previous, username: event.target.value }))
-                    }
-                  />
-                  <input
-                    type="password"
-                    placeholder="Password"
-                    value={accountForm.password}
-                    onChange={(event) =>
-                      setAccountForm((previous) => ({ ...previous, password: event.target.value }))
-                    }
-                  />
-                  <select
-                    value={accountForm.engineerId}
-                    onChange={(event) =>
-                      setAccountForm((previous) => ({ ...previous, engineerId: event.target.value }))
-                    }
-                  >
-                    {ENGINEER_DIRECTORY.map((engineer) => (
-                      <option key={engineer.id} value={engineer.id}>
-                        {engineer.id} - {engineer.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="submit" className="btn narrow-btn">
-                    CREATE ACCOUNT
-                  </button>
-                </form>
-                {accountNotice ? <p className="account-notice">{accountNotice}</p> : null}
-
-                <div className="account-list">
-                  {accounts
-                    .filter((account) => account.role === 'engineer')
-                    .map((account) => (
-                      <div key={account.id} className="account-row">
-                        <span>{account.name}</span>
-                        <span>{account.username}</span>
-                        <span>{account.engineerId ?? '--'}</span>
-                      </div>
-                    ))}
-                </div>
-              </div>
-
-              <div className="engineer-grid">
-                {engineers.map((engineer) => {
-                  const recommendation = openTickets[0]
-                    ? recommendEngineerForPump(PUMP_BY_ID[openTickets[0].pumpId], engineers)
-                    : null
-                  return (
-                    <div key={engineer.id} className="surface nested-surface engineer-panel">
-                      <div className="engineer-card-top">
-                        <div>
-                          <strong>{engineer.name}</strong>
-                          <p>{engineer.id}</p>
-                        </div>
-                        <span className={`status-pill status-${engineer.status.toLowerCase().replace(/\s+/g, '-')}`}>
-                          {engineer.status}
-                        </span>
-                      </div>
-                      <div className="engineer-facts">
-                        <span>Location: {engineer.location}</span>
-                        <span>Current assignment: {engineer.currentAssignment}</span>
-                        <span>ETA: {engineer.etaMinutes === null ? '--' : `${engineer.etaMinutes} min`}</span>
-                      </div>
-                      <div className="skill-list">
-                        {engineer.skillset.map((skill) => (
-                          <span key={skill}>{skill}</span>
-                        ))}
-                      </div>
-                      <div className="dispatch-note">
-                        {recommendation?.id === engineer.id
-                          ? 'AI dispatch recommendation: best current match for the highest-priority open ticket.'
-                          : 'Standing by for next dispatch or supporting current assignment.'}
-                      </div>
-                    </div>
-                  )
-                })}
               </div>
             </section>
           )}
