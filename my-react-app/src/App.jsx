@@ -1337,7 +1337,7 @@ function App() {
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
                     className="ai-input"
-                    placeholder="Ask Gemini about anomalies, dispatch choices, production impact, or maintenance recommendations..."
+                    placeholder="Ask Gemini about the island..."
                   ></textarea>
                   <button type="submit" className="btn" disabled={isAiBusy || !chatInput.trim()}>
                     {isAiBusy ? 'THINKING...' : 'ASK GEMINI'}

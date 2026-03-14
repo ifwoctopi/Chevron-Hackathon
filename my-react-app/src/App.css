@@ -837,7 +837,7 @@ textarea {
 
 .ai-input,
 .ticket-update-box textarea {
-  min-height: 112px;
+  min-height: 60px;
   resize: vertical;
   padding: 12px 14px;
   line-height: 1.65;
@@ -1267,7 +1267,7 @@ textarea {
 .ai-chat-feed {
   flex: 1;
   overflow-y: auto;
-  max-height: 300px; /* adjust to taste */
+  max-height: 200px; /* adjust to taste */
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
@@ -1276,3 +1276,6 @@ textarea {
 .ai-chat-feed::-webkit-scrollbar-track { background: transparent; }
 .ai-chat-feed::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 999px; }
 
+.ai-input-wrap {
+  margin-top: auto;
+}
