@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 const PUMPS = [
@@ -104,6 +104,13 @@ const MANAGER_TABS = [
   { id: 'pumpHistory', label: 'Pump History' },
 ]
 
+const ENGINEER_TABS = [
+  { id: 'myTickets', label: 'My Tickets' },
+  { id: 'mapLog', label: 'Map & Event Log' },
+  { id: 'incidentReports', label: 'Incident Reports' },
+  { id: 'pumpHistory', label: 'Pump History' },
+]
+
 const TICKET_STAGES = ['Detected', 'Assigned', 'En Route', 'In Progress', 'Resolved']
 
 const T_WARN = 85
@@ -114,6 +121,12 @@ const P_WARN = 115
 
 const PUMP_BY_ID = Object.fromEntries(PUMPS.map((pump) => [pump.id, pump]))
 const pumpHistorySeed = buildPumpHistorySeed()
+
+function createInitialPumpHistoryLive() {
+  return Object.fromEntries(
+    Object.entries(pumpHistorySeed).map(([pumpId, history]) => [pumpId, { ...history, healthTimeline: [...history.healthTimeline] }]),
+  )
+}
 
 function createInitialAccounts() {
   const managerAccount = {
@@ -139,12 +152,27 @@ function createInitialAccounts() {
   return [managerAccount, ...engineerAccounts]
 }
 
+function createInitialEngineerProfiles() {
+  return ENGINEER_DIRECTORY.map((engineer, index) => ({
+    id: engineer.id,
+    name: engineer.name,
+    homeZone: engineer.homeZone,
+    skillset: engineer.skillset,
+    isActive: engineer.shift !== 'Off',
+    onCall: engineer.shift === 'On',
+    currentLocation: engineer.homeZone,
+    profilePhoto: `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(engineer.name)}`,
+    etaMinutes: 0,
+    updatedAt: new Date(Date.now() - index * 4000).toISOString(),
+  }))
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
 
 function createNominalState() {
-  return PUMPS.map((pump) => ({ ...pump, fault: false, faultTick: 0 }))
+  return PUMPS.map((pump) => ({ ...pump, fault: false, faultTick: 0, faultCycles: 0, warnTick: null }))
 }
 
 function createInitialState() {
@@ -159,14 +187,51 @@ function createInitialState() {
       pressure: 111,
       flow: 272,
       vibe: 53,
+      faultCycles: 1,
+      warnTick: 0,
     }
   })
 }
 
+function toReadableStatus(status) {
+  if (status === 'open') return 'Open'
+  if (status === 'resolved') return 'Resolved'
+  return status
+    .split('_')
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(' ')
+}
+
+function buildPumpSnapshot(pump, createdAt = new Date()) {
+  return {
+    capturedAt: createdAt.toISOString(),
+    status: getStatus(pump),
+    temp: Math.round(pump.temp),
+    pressure: Math.round(pump.pressure),
+    flow: Math.round(pump.flow),
+    vibe: Math.round(pump.vibe),
+  }
+}
+
+function buildIncidentReport(pump, snapshot) {
+  const severityLine =
+    snapshot.status === 'crit'
+      ? 'Critical telemetry breach detected.'
+      : snapshot.status === 'warn'
+        ? 'Warning threshold breach detected.'
+        : 'Advisory telemetry anomaly detected.'
+
+  return `AI incident summary: ${pump.name} in ${pump.zone}. ${severityLine} Snapshot at report time - temp ${snapshot.temp} degC, pressure ${snapshot.pressure} psi, flow ${snapshot.flow} L/min, vibe ${snapshot.vibe} Hz.`
+}
+
 function createThreadEntry(author, message, createdAt = new Date()) {
+  const authorDescriptor = typeof author === 'string' ? { name: author, role: author } : author
+  const role = authorDescriptor.role || 'system'
+
   return {
     id: `${createdAt.getTime()}-${Math.random().toString(36).slice(2, 7)}`,
-    author,
+    author: authorDescriptor.name,
+    authorRole: role,
     message,
     createdAt: createdAt.toISOString(),
     time: formatClock(createdAt),
@@ -182,6 +247,7 @@ function createInitialTickets() {
       pumpId: 'PMP-04',
       severity: 'high',
       status: 'open',
+      workflowStatus: 'in_progress',
       openedTick: -10,
       openedAt: new Date(now - 28 * 60 * 1000).toISOString(),
       resolvedAt: null,
@@ -193,9 +259,9 @@ function createInitialTickets() {
         'Dispatch Mateo Singh first. He is the closest thermal specialist and can stabilize motor load before the incident propagates into downstream production loss.',
       escalated: false,
       thread: [
-        createThreadEntry('engineer', 'On site at South Output. Beginning thermal scan and coupling inspection.'),
-        createThreadEntry('manager', 'Manager note: prioritize restoring pressure before the midnight production window.'),
-        createThreadEntry('system', 'Ticket auto-created from telemetry threshold breach.'),
+        createThreadEntry({ name: 'Mateo Singh', role: 'engineer' }, 'On site at South Output. Beginning thermal scan and coupling inspection.'),
+        createThreadEntry({ name: 'Island Manager', role: 'manager' }, 'Manager note: prioritize restoring pressure before the midnight production window.'),
+        createThreadEntry({ name: 'System', role: 'system' }, 'Ticket auto-created from telemetry threshold breach.'),
       ],
     },
     {
@@ -203,6 +269,7 @@ function createInitialTickets() {
       pumpId: 'PMP-02',
       severity: 'medium',
       status: 'resolved',
+      workflowStatus: 'resolved',
       openedTick: -80,
       openedAt: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
       resolvedAt: new Date(now - 3 * 24 * 60 * 60 * 1000 + 62 * 60 * 1000).toISOString(),
@@ -213,13 +280,14 @@ function createInitialTickets() {
       dispatchRecommendation:
         'Priya Nwosu was correctly assigned based on SCADA specialization and central proximity.',
       escalated: false,
-      thread: [createThreadEntry('system', 'Resolved after connector replacement and calibration validation.')],
+      thread: [createThreadEntry({ name: 'System', role: 'system' }, 'Resolved after connector replacement and calibration validation.')],
     },
     {
       id: 'INC-2288',
       pumpId: 'PMP-05',
       severity: 'low',
       status: 'resolved',
+      workflowStatus: 'resolved',
       openedTick: -120,
       openedAt: new Date(now - 11 * 24 * 60 * 60 * 1000).toISOString(),
       resolvedAt: new Date(now - 11 * 24 * 60 * 60 * 1000 + 38 * 60 * 1000).toISOString(),
@@ -230,13 +298,14 @@ function createInitialTickets() {
       dispatchRecommendation:
         'Reliability-focused follow-up recommended only if two more transient spikes occur within 30 days.',
       escalated: false,
-      thread: [createThreadEntry('system', 'Resolved during startup window with no further action required.')],
+      thread: [createThreadEntry({ name: 'System', role: 'system' }, 'Resolved during startup window with no further action required.')],
     },
     {
       id: 'INC-2263',
       pumpId: 'PMP-01',
       severity: 'high',
       status: 'resolved',
+      workflowStatus: 'resolved',
       openedTick: -150,
       openedAt: new Date(now - 21 * 24 * 60 * 60 * 1000).toISOString(),
       resolvedAt: new Date(now - 21 * 24 * 60 * 60 * 1000 + 96 * 60 * 1000).toISOString(),
@@ -247,7 +316,7 @@ function createInitialTickets() {
       dispatchRecommendation:
         'Preventive intake screening should be advanced by one week for the next two cycles.',
       escalated: true,
-      thread: [createThreadEntry('system', 'Escalated during event due to upstream throughput risk. Resolved after debris removal.')],
+      thread: [createThreadEntry({ name: 'System', role: 'system' }, 'Escalated during event due to upstream throughput risk. Resolved after debris removal.')],
     },
   ]
 }
@@ -327,6 +396,12 @@ function getOpenMinutes(ticket, tick) {
 function getTicketStage(ticket, tick) {
   if (ticket.status === 'resolved') return 'Resolved'
 
+  if (ticket.workflowStatus) {
+    if (ticket.workflowStatus === 'assigned') return 'Assigned'
+    if (ticket.workflowStatus === 'en_route') return 'En Route'
+    if (ticket.workflowStatus === 'in_progress') return 'In Progress'
+  }
+
   const elapsedMinutes = getOpenMinutes(ticket, tick)
   if (elapsedMinutes < 6) return 'Detected'
   if (elapsedMinutes < 12) return 'Assigned'
@@ -359,8 +434,8 @@ function getRiskBand(score) {
   return 'crit'
 }
 
-function deriveEngineers(tickets, tick) {
-  return ENGINEER_DIRECTORY.map((engineer) => {
+function deriveEngineers(engineerProfiles, tickets, tick) {
+  return engineerProfiles.map((engineer) => {
     const assignment = tickets
       .filter((ticket) => ticket.status === 'open' && ticket.assignedEngineerId === engineer.id)
       .sort((left, right) => new Date(right.openedAt) - new Date(left.openedAt))[0]
@@ -368,10 +443,10 @@ function deriveEngineers(tickets, tick) {
     if (!assignment) {
       return {
         ...engineer,
-        status: engineer.shift === 'Off' ? 'Off Shift' : ' Available',
-        location: engineer.homeZone,
+        status: engineer.isActive ? (engineer.onCall ? 'On Call' : 'Available') : 'Off Shift',
+        location: engineer.currentLocation,
         currentAssignment: 'None',
-        etaMinutes: null,
+        etaMinutes: engineer.onCall && engineer.isActive ? engineer.etaMinutes : null,
       }
     }
 
@@ -395,9 +470,9 @@ function deriveEngineers(tickets, tick) {
     return {
       ...engineer,
       status: stageStatus,
-      location: PUMP_BY_ID[assignment.pumpId]?.zone ?? engineer.homeZone,
+      location: engineer.currentLocation || PUMP_BY_ID[assignment.pumpId]?.zone || engineer.homeZone,
       currentAssignment: assignment.id,
-      etaMinutes: Math.round(etaMinutes),
+      etaMinutes: Math.round(engineer.etaMinutes > 0 ? engineer.etaMinutes : etaMinutes),
     }
   })
 }
@@ -522,18 +597,18 @@ function StagePipeline({ stage }) {
 
 function App() {
   const [accounts, setAccounts] = useState(createInitialAccounts)
+  const [engineerProfiles, setEngineerProfiles] = useState(createInitialEngineerProfiles)
   const [authUser, setAuthUser] = useState(null)
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
   const [loginError, setLoginError] = useState('')
-  const [accountForm, setAccountForm] = useState({
-    name: '',
-    username: '',
-    password: '',
-    engineerId: 'ENG-01',
-  })
-  const [accountNotice, setAccountNotice] = useState('')
+  const [accountModalOpen, setAccountModalOpen] = useState(false)
+  const [accountModalForm, setAccountModalForm] = useState({ name: '', username: '', password: '' })
+  const [accountModalNotice, setAccountModalNotice] = useState('')
+  const [managerTicketFilter, setManagerTicketFilter] = useState('all')
+  const [engineerTab, setEngineerTab] = useState('myTickets')
 
   const [telemetryState, setTelemetryState] = useState(createInitialState)
+  const [pumpHistoryLive, setPumpHistoryLive] = useState(createInitialPumpHistoryLive)
   const [selectedId, setSelectedId] = useState('PMP-04')
   const [clock, setClock] = useState(formatClock)
   const [tick, setTick] = useState(0)
@@ -565,36 +640,97 @@ function App() {
   ])
   const [isAiBusy, setIsAiBusy] = useState(false)
   const [ticketUpdateInput, setTicketUpdateInput] = useState('')
+  const statusByPumpRef = useRef({})
+  const tickRef = useRef(0)
 
   useEffect(() => {
     const timer = setInterval(() => {
       setClock(formatClock())
-      setTick((previous) => previous + 1)
+      setTick((previous) => {
+        const next = previous + 1
+        tickRef.current = next
+        return next
+      })
       setTelemetryState((previous) =>
-        previous.map((pump) => {
+        previous.map((pump, index) => {
+          const baseline = PUMP_BY_ID[pump.id]
+          const cycleTick = tickRef.current
+
           if (pump.fault) {
+            const nextFaultTick = pump.faultTick + 1
+
+            const currentStatus = getStatus(pump)
+            const nextWarnTick = currentStatus === 'warn' && (pump.warnTick === null || pump.warnTick === undefined)
+              ? cycleTick
+              : pump.warnTick
+            const shouldEscalateToCrit =
+              nextWarnTick !== null && nextWarnTick !== undefined && cycleTick - nextWarnTick >= 7
+
+            if (shouldEscalateToCrit) {
+              return {
+                ...pump,
+                faultTick: nextFaultTick,
+                warnTick: nextWarnTick,
+                temp: Math.max(pump.temp + 2.2, 104),
+                pressure: Math.max(pump.pressure - 1.2, 96),
+                flow: Math.max(pump.flow - 3.2, 205),
+                vibe: Math.max(pump.vibe + 2.4, 74),
+              }
+            }
+
             return {
               ...pump,
-              faultTick: pump.faultTick + 1,
-              temp: Math.min(122, pump.temp + 0.7 + Math.random() * 0.5),
-              pressure: Math.max(92, pump.pressure - 0.3 - Math.random() * 0.2),
-              flow: Math.max(185, pump.flow - 1 - Math.random() * 0.8),
-              vibe: Math.min(92, pump.vibe + 0.8 + Math.random() * 0.5),
+              faultTick: nextFaultTick,
+              warnTick: nextWarnTick,
+              temp: Math.min(124, pump.temp + 0.8 + Math.random() * 0.7),
+              pressure: Math.max(92, pump.pressure - 0.6 - Math.random() * 0.35),
+              flow: Math.max(175, pump.flow - 1.5 - Math.random() * 1.2),
+              vibe: Math.min(94, pump.vibe + 1 + Math.random() * 0.6),
             }
           }
 
-          const baseline = PUMP_BY_ID[pump.id]
-          return {
-            ...pump,
-            temp: Math.max(baseline.temp - 3, Math.min(baseline.temp + 3, jitter(pump.temp, 1.2))),
+          const drift = Math.sin((cycleTick + index * 4) / 3)
+          const jittered = {
+            temp: Math.max(baseline.temp - 3, Math.min(baseline.temp + 3, jitter(pump.temp + drift * 0.25, 1.1))),
             pressure: Math.max(
               baseline.pressure - 8,
-              Math.min(baseline.pressure + 8, jitter(pump.pressure, 3)),
+              Math.min(baseline.pressure + 8, jitter(pump.pressure - drift * 0.7, 2.8)),
             ),
-            flow: Math.max(baseline.flow - 15, Math.min(baseline.flow + 15, jitter(pump.flow, 5))),
-            vibe: Math.max(baseline.vibe - 3, Math.min(baseline.vibe + 3, jitter(pump.vibe, 1.5))),
+            flow: Math.max(baseline.flow - 18, Math.min(baseline.flow + 14, jitter(pump.flow + drift * 2.4, 4.8))),
+            vibe: Math.max(baseline.vibe - 3, Math.min(baseline.vibe + 3, jitter(pump.vibe + drift * 0.3, 1.3))),
+          }
+
+          // Cycle faults across pumps so each unit demonstrates warn/crit states over time.
+          const shouldRotateFault =
+            cycleTick > 0 &&
+            cycleTick % 8 === 0 &&
+            (pump.faultCycles || 0) === 0 &&
+            index === Math.floor(cycleTick / 8) % PUMPS.length
+          if (shouldRotateFault) {
+            return {
+              ...pump,
+              fault: true,
+              faultTick: 0,
+              warnTick: cycleTick,
+              temp: Math.max(jittered.temp + 16, 87),
+              pressure: Math.max(jittered.pressure - 20, 102),
+              flow: Math.max(jittered.flow - 36, 230),
+              vibe: Math.max(jittered.vibe + 22, 50),
+            }
+          }
+
+          return {
+            ...pump,
+            ...jittered,
           }
         }),
+      )
+
+      setEngineerProfiles((previous) =>
+        previous.map((profile) => ({
+          ...profile,
+          etaMinutes: profile.onCall && profile.etaMinutes > 0 ? profile.etaMinutes - 1 : profile.etaMinutes,
+        })),
       )
     }, 1500)
 
@@ -604,24 +740,48 @@ function App() {
   useEffect(() => {
     if (tick === 0) return
 
+    const now = new Date()
     const nextLogs = []
+
     telemetryState.forEach((pump) => {
-      const status = getStatus(pump)
-      if (status === 'crit') {
+      const currentStatus = getStatus(pump)
+      const previousStatus = statusByPumpRef.current[pump.id] || 'ok'
+      const crossedToIncident =
+        (currentStatus === 'warn' || currentStatus === 'crit') && previousStatus === 'ok'
+
+      if (crossedToIncident) {
+        nextLogs.push({
+          id: `incident-${tick}-${pump.id}`,
+          time: formatClock(now),
+          message: `${pump.id} ${currentStatus.toUpperCase()} - incident report updated from live telemetry`,
+          level: currentStatus === 'crit' ? 'crit' : 'warn',
+        })
+      } else if (currentStatus === 'crit' && tick % 2 === 0) {
         nextLogs.push({
           id: `crit-${tick}-${pump.id}`,
-          time: formatClock(),
-          message: `${pump.id} CRITICAL - temp ${Math.round(pump.temp)} degC, vibe ${Math.round(pump.vibe)}Hz`,
+          time: formatClock(now),
+          message: `${pump.id} CRITICAL - temp ${Math.round(pump.temp)} degC, vibe ${Math.round(pump.vibe)} Hz`,
           level: 'crit',
         })
-      } else if (status === 'warn' && pump.fault && tick % 4 === 0) {
+      } else if (currentStatus === 'warn' && tick % 4 === 0) {
         nextLogs.push({
           id: `warn-${tick}-${pump.id}`,
-          time: formatClock(),
-          message: `${pump.id} WARNING - live incident still active`,
+          time: formatClock(now),
+          message: `${pump.id} WARNING - elevated readings sustained`,
           level: 'warn',
         })
       }
+
+      if (currentStatus === 'ok' && previousStatus !== 'ok') {
+        nextLogs.push({
+          id: `recover-${tick}-${pump.id}`,
+          time: formatClock(now),
+          message: `${pump.id} recovered to nominal telemetry`,
+          level: 'ok',
+        })
+      }
+
+      statusByPumpRef.current[pump.id] = currentStatus
     })
 
     if (tick % 10 === 0) {
@@ -629,16 +789,115 @@ function App() {
       if (nominal.length) {
         nextLogs.push({
           id: `nominal-${tick}`,
-          time: formatClock(),
+          time: formatClock(now),
           message: `${nominal.map((pump) => pump.id).join(', ')} - nominal`,
           level: 'ok',
         })
       }
     }
 
+    setTickets((previous) => {
+      const next = [...previous]
+      const engineersNow = deriveEngineers(engineerProfiles, next, tick)
+      let createdCount = 0
+      let updatedCount = 0
+
+      telemetryState.forEach((pump) => {
+        const status = getStatus(pump)
+        if (status === 'ok') return
+
+        const openTicketIndex = next.findIndex((ticket) => ticket.pumpId === pump.id && ticket.status === 'open')
+        if (openTicketIndex >= 0) {
+          const openTicket = next[openTicketIndex]
+          const priorSnapshotStatus = openTicket.reportedSnapshot?.status || null
+
+          // Keep incident reports synchronized with live incident changes (e.g. warn -> crit).
+          if (priorSnapshotStatus !== status) {
+            const snapshot = buildPumpSnapshot(pump, now)
+            next[openTicketIndex] = {
+              ...openTicket,
+              severity: getSeverityLabel(pump),
+              report: buildIncidentReport(pump, snapshot),
+              reportedSnapshot: snapshot,
+              thread: [
+                createThreadEntry(
+                  { name: 'System', role: 'system' },
+                  `Incident report refreshed from live telemetry (${status.toUpperCase()}).`,
+                  now,
+                ),
+                ...openTicket.thread,
+              ],
+            }
+            updatedCount += 1
+          }
+
+          return
+        }
+
+        const snapshot = buildPumpSnapshot(pump, now)
+        const recommendedEngineer = recommendEngineerForPump(pump, engineersNow)
+
+        next.unshift({
+          id: `INC-${String(Date.now() + Math.floor(Math.random() * 1000)).slice(-4)}`,
+          pumpId: pump.id,
+          severity: getSeverityLabel(pump),
+          status: 'open',
+          workflowStatus: 'assigned',
+          openedTick: tick,
+          openedAt: now.toISOString(),
+          resolvedAt: null,
+          assignedEngineerId: recommendedEngineer?.id ?? null,
+          responseTargetMinutes: recommendedEngineer?.id ? 45 : 60,
+          report: buildIncidentReport(pump, snapshot),
+          reportedSnapshot: snapshot,
+          dispatchRecommendation: recommendedEngineer
+            ? `${recommendedEngineer.name} recommended based on ${recommendedEngineer.currentLocation || recommendedEngineer.homeZone}.`
+            : 'No available engineer. Escalate and assign manually.',
+          escalated: false,
+          thread: [
+            createThreadEntry(
+              { name: 'System', role: 'system' },
+              `Ticket auto-created from ${status.toUpperCase()} telemetry threshold breach.`,
+              now,
+            ),
+          ],
+        })
+        createdCount += 1
+      })
+
+      return createdCount || updatedCount ? next : previous
+    })
+
     if (nextLogs.length) {
       setLogs((previous) => [...nextLogs.reverse(), ...previous].slice(0, 48))
     }
+  }, [tick, telemetryState, engineerProfiles])
+
+  useEffect(() => {
+    if (tick === 0) return
+
+    setPumpHistoryLive((previous) => {
+      const next = { ...previous }
+
+      telemetryState.forEach((pump) => {
+        const current = next[pump.id] || pumpHistorySeed[pump.id]
+        const status = getStatus(pump)
+        const health = clamp(
+          Math.round(100 - (pump.temp - 65) * 1.2 - (pump.vibe - 24) * 1.5 - Math.max(0, 125 - pump.pressure) * 0.7),
+          20,
+          100,
+        )
+
+        next[pump.id] = {
+          ...current,
+          healthTimeline: [...current.healthTimeline.slice(-29), health],
+          sensorEvents: current.sensorEvents + (status === 'crit' ? 1 : 0),
+          sensorReliability: clamp(current.sensorReliability - (status === 'crit' ? 0.4 : status === 'warn' ? 0.2 : -0.1), 75, 99),
+        }
+      })
+
+      return next
+    })
   }, [tick, telemetryState])
 
   const openTickets = useMemo(
@@ -646,23 +905,46 @@ function App() {
     [tickets],
   )
 
+  const sortedTickets = useMemo(
+    () => [...tickets].sort((left, right) => new Date(right.openedAt) - new Date(left.openedAt)),
+    [tickets],
+  )
+
+  const isManager = authUser?.role === 'manager'
+  const ownEngineerId = authUser?.engineerId || null
+  const ownEngineerProfile = useMemo(
+    () => engineerProfiles.find((profile) => profile.id === ownEngineerId) ?? null,
+    [engineerProfiles, ownEngineerId],
+  )
+
+  const visibleTickets = useMemo(() => {
+    if (isManager) {
+      if (managerTicketFilter === 'open') return sortedTickets.filter((ticket) => ticket.status === 'open')
+      if (managerTicketFilter === 'resolved') return sortedTickets.filter((ticket) => ticket.status === 'resolved')
+      return sortedTickets
+    }
+
+    if (!ownEngineerId) return []
+    return sortedTickets.filter((ticket) => ticket.assignedEngineerId === ownEngineerId)
+  }, [isManager, managerTicketFilter, ownEngineerId, sortedTickets])
+
   const selectedTicket = useMemo(
-    () => tickets.find((ticket) => ticket.id === selectedTicketId) ?? openTickets[0] ?? tickets[0] ?? null,
-    [openTickets, selectedTicketId, tickets],
+    () => visibleTickets.find((ticket) => ticket.id === selectedTicketId) ?? visibleTickets[0] ?? null,
+    [selectedTicketId, visibleTickets],
   )
 
   useEffect(() => {
-    if (!selectedTicket && tickets[0]) {
-      setSelectedTicketId(tickets[0].id)
+    if (!selectedTicket && visibleTickets[0]) {
+      setSelectedTicketId(visibleTickets[0].id)
       return
     }
 
-    if (selectedTicketId && !tickets.some((ticket) => ticket.id === selectedTicketId)) {
-      setSelectedTicketId(tickets[0]?.id ?? '')
+    if (selectedTicketId && !visibleTickets.some((ticket) => ticket.id === selectedTicketId)) {
+      setSelectedTicketId(visibleTickets[0]?.id ?? '')
     }
-  }, [selectedTicket, selectedTicketId, tickets])
+  }, [selectedTicket, selectedTicketId, visibleTickets])
 
-  const engineers = useMemo(() => deriveEngineers(tickets, tick), [tickets, tick])
+  const engineers = useMemo(() => deriveEngineers(engineerProfiles, tickets, tick), [engineerProfiles, tickets, tick])
   const selectedEngineer = useMemo(
     () => engineers.find((engineer) => engineer.id === selectedEngineerId) ?? engineers[0] ?? null,
     [engineers, selectedEngineerId],
@@ -681,24 +963,24 @@ function App() {
   const riskBand = getRiskBand(riskScore)
 
   const kpis = useMemo(() => {
-  const activeIncidents = openTickets.length
-  const uptime = clamp(99.3 - activeIncidents * 1.8 - riskScore * 0.03, 82.1, 99.9)
-  const engineersOnCall = engineers.filter((engineer) => engineer.status !== 'Off Shift').length
+    const activeIncidents = openTickets.length
+    const uptime = clamp(99.3 - activeIncidents * 1.8 - riskScore * 0.03, 82.1, 99.9)
+    const engineersOnCall = engineers.filter((engineer) => engineer.status !== 'Off Shift').length
+    const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000
+    const incidents24h = tickets.filter((ticket) => new Date(ticket.openedAt).getTime() >= twentyFourHoursAgo)
+    const estimatedProductionLoss = incidents24h.reduce((sum, ticket) => {
+      if (ticket.severity === 'high') return sum + 18400
+      if (ticket.severity === 'medium') return sum + 7600
+      return sum + 2300
+    }, 0)
 
-  const estimatedProductionLoss = openTickets.reduce((sum, ticket) => {
-    const pump = telemetryState.find((p) => p.id === ticket.pumpId)
-    if (!pump) return sum
-    const degradation = Math.max(0, pump.temp - 85) * 200 + Math.max(0, pump.vibe - 50) * 150
-    return sum + degradation
-  }, 0)
-
-  return {
-    uptime: `${uptime.toFixed(1)}%`,
-    activeIncidents,
-    engineersOnCall,
-    estimatedProductionLoss,
-  }
-}, [engineers, openTickets, riskScore, telemetryState])  // ← telemetryState added
+    return {
+      uptime: `${uptime.toFixed(1)}%`,
+      activeIncidents,
+      engineersOnCall,
+      estimatedProductionLoss,
+    }
+  }, [engineers, openTickets, riskScore, tickets])
 
   const telemetryContext = useMemo(
     () => buildTelemetryContext(telemetryState, selectedId, logs, summaryLine, tickets, engineers, riskScore, tick),
@@ -708,7 +990,7 @@ function App() {
   const pumpInsights = useMemo(
     () =>
       PUMPS.map((pump) => {
-        const history = pumpHistorySeed[pump.id]
+        const history = pumpHistoryLive[pump.id]
         const failures90d = tickets.filter((ticket) => ticket.pumpId === pump.id).length
         const latestScore = history.healthTimeline.at(-1)
 
@@ -719,7 +1001,7 @@ function App() {
           latestScore,
         }
       }),
-    [tickets],
+    [pumpHistoryLive, tickets],
   )
 
   const filteredHistory = useMemo(() => {
@@ -775,7 +1057,7 @@ function App() {
                   ...ticket,
                   escalated: true,
                   thread: [
-                    createThreadEntry('system', `AI escalation draft: ${response.text}`),
+                    createThreadEntry({ name: 'System', role: 'system' }, `AI escalation draft: ${response.text}`),
                     ...ticket.thread,
                   ],
                 }
@@ -787,7 +1069,7 @@ function App() {
       const errorMessage = {
         id: `e-${Date.now()}`,
         role: 'assistant',
-        text: `Gemini request failed: ${error.message}`,
+        text: `Flare request failed: ${error.message}`,
         ts: formatClock(),
       }
       setChatMessages((previous) => [errorMessage, ...previous])
@@ -799,7 +1081,7 @@ function App() {
               ? {
                   ...ticket,
                   thread: [
-                    createThreadEntry('system', `Escalation attempt failed: ${error.message}`),
+                    createThreadEntry({ name: 'System', role: 'system' }, `Escalation attempt failed: ${error.message}`),
                     ...ticket.thread,
                   ],
                 }
@@ -834,6 +1116,7 @@ function App() {
           ...pump,
           fault: true,
           faultTick: 0,
+          warnTick: tickRef.current,
           temp: Math.max(pump.temp + 14, 88),
           pressure: Math.max(pump.pressure - 18, 108),
           flow: Math.max(pump.flow - 40, 240),
@@ -845,23 +1128,32 @@ function App() {
     if (!targetPump) return
 
     const recommendedEngineer = recommendEngineerForPump(targetPump, engineers)
+    const snapshot = buildPumpSnapshot({
+      ...targetPump,
+      temp: targetPump.temp + 14,
+      pressure: targetPump.pressure - 18,
+      flow: targetPump.flow - 40,
+      vibe: targetPump.vibe + 20,
+    })
     const newTicket = {
       id: `INC-${String(Date.now()).slice(-4)}`,
       pumpId: targetPump.id,
       severity: getSeverityLabel({ ...targetPump, temp: targetPump.temp + 14, vibe: targetPump.vibe + 20, pressure: targetPump.pressure - 18 }),
       status: 'open',
+      workflowStatus: 'assigned',
       openedTick: tick,
       openedAt: new Date().toISOString(),
       resolvedAt: null,
       assignedEngineerId: recommendedEngineer?.id ?? null,
       responseTargetMinutes: recommendedEngineer?.id ? 45 : 60,
-      report: `AI incident summary: ${targetPump.name} crossed thermal and vibration thresholds. Expect accelerated wear unless dispatch occurs immediately.`,
+      report: buildIncidentReport(targetPump, snapshot),
+      reportedSnapshot: snapshot,
       dispatchRecommendation: recommendedEngineer
         ? `${recommendedEngineer.name} recommended based on zone ${recommendedEngineer.homeZone}, current status ${recommendedEngineer.status}, and fit with ${targetPump.zone}.`
         : 'No active engineer recommendation available. Escalate to senior engineering now.',
       escalated: false,
       thread: [
-        createThreadEntry('system', `Ticket opened for ${targetPump.name}. Auto-assignment recommendation prepared.`),
+        createThreadEntry({ name: 'System', role: 'system' }, `Ticket opened for ${targetPump.name}. Auto-assignment recommendation prepared.`),
       ],
     }
 
@@ -875,19 +1167,41 @@ function App() {
     ])
   }
 
+  useEffect(() => {
+    if (!authUser || !isManager) return
+
+    const onKeyDown = (event) => {
+      const targetTag = event.target?.tagName?.toLowerCase()
+      const isTypingTarget =
+        targetTag === 'input' || targetTag === 'textarea' || targetTag === 'select' || event.target?.isContentEditable
+
+      if (isTypingTarget || event.metaKey || event.ctrlKey || event.altKey || event.repeat) return
+      if (event.key.toLowerCase() !== 'p') return
+
+      event.preventDefault()
+      injectFault()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [authUser, isManager, injectFault])
+
   const resetAll = () => {
     const resolvedAt = new Date().toISOString()
     setTelemetryState(createNominalState())
+    statusByPumpRef.current = {}
     setSelectedId('PMP-01')
     setTick(0)
+    tickRef.current = 0
     setTickets((previous) =>
       previous.map((ticket) =>
         ticket.status === 'open'
           ? {
               ...ticket,
               status: 'resolved',
+              workflowStatus: 'resolved',
               resolvedAt,
-              thread: [createThreadEntry('system', 'Ticket resolved during full system reset.'), ...ticket.thread],
+              thread: [createThreadEntry({ name: 'System', role: 'system' }, 'Ticket resolved during full system reset.'), ...ticket.thread],
             }
           : ticket,
       ),
@@ -904,17 +1218,112 @@ function App() {
   const sendTicketUpdate = () => {
     if (!selectedTicket || !ticketUpdateInput.trim()) return
 
+    const actor =
+      authUser?.role === 'manager'
+        ? { name: authUser.name, role: 'manager' }
+        : { name: authUser?.name || 'Engineer', role: 'engineer' }
+
     setTickets((previous) =>
       previous.map((ticket) =>
         ticket.id === selectedTicket.id
           ? {
               ...ticket,
-              thread: [createThreadEntry('engineer', ticketUpdateInput.trim()), ...ticket.thread],
+              thread: [createThreadEntry(actor, ticketUpdateInput.trim()), ...ticket.thread],
             }
           : ticket,
       ),
     )
     setTicketUpdateInput('')
+  }
+
+  const assignTicketToEngineer = (ticketId, engineerId) => {
+    if (!engineerId) return
+    const engineer = engineers.find((item) => item.id === engineerId)
+    const ticket = tickets.find((item) => item.id === ticketId)
+    const targetZone = ticket ? PUMP_BY_ID[ticket.pumpId]?.zone : null
+
+    setTickets((previous) =>
+      previous.map((ticket) =>
+        ticket.id === ticketId
+          ? {
+              ...ticket,
+              assignedEngineerId: engineerId,
+              workflowStatus: 'assigned',
+              thread: [
+                createThreadEntry(
+                  { name: authUser?.name || 'Manager', role: 'manager' },
+                  `Assigned ${engineer?.name || engineerId} to this ticket.`,
+                ),
+                ...ticket.thread,
+              ],
+            }
+          : ticket,
+      ),
+    )
+
+    if (engineer) {
+      setEngineerProfiles((previous) =>
+        previous.map((profile) =>
+          profile.id === engineerId
+            ? { ...profile, onCall: true, isActive: true, currentLocation: targetZone || profile.currentLocation, etaMinutes: 18 }
+            : profile,
+        ),
+      )
+    }
+  }
+
+  const updateTicketStatus = (ticketId, workflowStatus) => {
+    const now = new Date()
+    const status = workflowStatus === 'resolved' ? 'resolved' : 'open'
+
+    setTickets((previous) =>
+      previous.map((ticket) => {
+        if (ticket.id !== ticketId) return ticket
+
+        const threadEntry =
+          workflowStatus === 'resolved'
+            ? `Marked ticket as resolved.`
+            : `Updated ticket status to ${toReadableStatus(workflowStatus)}.`
+
+        return {
+          ...ticket,
+          workflowStatus,
+          status,
+          resolvedAt: workflowStatus === 'resolved' ? now.toISOString() : ticket.resolvedAt,
+          thread: [
+            createThreadEntry(
+              authUser?.role === 'manager'
+                ? { name: authUser.name, role: 'manager' }
+                : { name: authUser?.name || 'Engineer', role: 'engineer' },
+              threadEntry,
+              now,
+            ),
+            ...ticket.thread,
+          ],
+        }
+      }),
+    )
+
+    const resolvedTicket = tickets.find((ticket) => ticket.id === ticketId)
+    if (workflowStatus === 'resolved' && resolvedTicket) {
+      const baseline = PUMP_BY_ID[resolvedTicket.pumpId]
+      setTelemetryState((previous) =>
+        previous.map((pump) =>
+          pump.id === resolvedTicket.pumpId
+            ? { ...pump, fault: false, faultTick: 0, warnTick: null, temp: baseline.temp, pressure: baseline.pressure, flow: baseline.flow, vibe: baseline.vibe }
+            : pump,
+        ),
+      )
+      setLogs((previous) => [
+        {
+          id: `resolve-${Date.now()}`,
+          time: formatClock(now),
+          message: `${resolvedTicket.pumpId} returned to nominal. ${resolvedTicket.id} resolved.`,
+          level: 'ok',
+        },
+        ...previous,
+      ])
+    }
   }
 
   const escalateTicket = async (ticket) => {
@@ -974,6 +1383,8 @@ function App() {
 
     setAuthUser(account)
     setLoginError('')
+    setAccountModalForm({ name: account.name, username: account.username, password: account.password })
+    setAccountModalNotice('')
 
     if (account.role !== 'manager' && account.engineerId) {
       setSelectedEngineerId(account.engineerId)
@@ -984,47 +1395,73 @@ function App() {
     setAuthUser(null)
     setLoginForm({ username: '', password: '' })
     setLoginError('')
+    setTicketUpdateInput('')
+    setAccountModalOpen(false)
+    setAccountModalNotice('')
   }
 
-  const createEngineerAccount = (event) => {
+  const updateOwnAccount = (event) => {
     event.preventDefault()
+    if (!authUser) return
 
-    const payload = {
-      name: accountForm.name.trim(),
-      username: accountForm.username.trim().toLowerCase(),
-      password: accountForm.password.trim(),
-      engineerId: accountForm.engineerId,
-    }
-
-    if (!payload.name || !payload.username || !payload.password) {
-      setAccountNotice('Name, username, and password are required.')
+    const nextName = accountModalForm.name.trim()
+    const nextUsername = accountModalForm.username.trim().toLowerCase()
+    const nextPassword = accountModalForm.password.trim()
+    if (!nextName || !nextUsername || !nextPassword) {
+      setAccountModalNotice('Name, username, and password are required.')
       return
     }
 
-    if (accounts.some((account) => account.username.toLowerCase() === payload.username)) {
-      setAccountNotice('That username already exists.')
-      return
+    setAccounts((previous) =>
+      previous.map((account) =>
+        account.id === authUser.id
+          ? { ...account, name: nextName, username: nextUsername, password: nextPassword }
+          : account,
+      ),
+    )
+    if (authUser.engineerId) {
+      setEngineerProfiles((previous) =>
+        previous.map((profile) =>
+          profile.id === authUser.engineerId ? { ...profile, name: nextName, updatedAt: new Date().toISOString() } : profile,
+        ),
+      )
     }
+    setAuthUser((previous) => (previous ? { ...previous, name: nextName, username: nextUsername, password: nextPassword } : previous))
+    setAccountModalNotice('Account updated.')
+  }
 
-    const newAccount = {
-      id: `ACC-NEW-${Date.now()}`,
-      role: 'engineer',
-      createdAt: new Date().toISOString(),
-      ...payload,
-    }
-
-    setAccounts((previous) => [newAccount, ...previous])
-    setAccountForm({ name: '', username: '', password: '', engineerId: payload.engineerId })
-    setAccountNotice(`Engineer account created for ${payload.name}.`)
+  const updateEngineerProfile = (profileId, updates) => {
+    setEngineerProfiles((previous) =>
+      previous.map((profile) =>
+        profile.id === profileId
+          ? {
+              ...profile,
+              ...updates,
+              etaMinutes: Math.max(0, Number(updates.etaMinutes ?? profile.etaMinutes) || 0),
+              updatedAt: new Date().toISOString(),
+            }
+          : profile,
+      ),
+    )
   }
 
   const selectedPumpHistory = pumpInsights.find((pump) => pump.id === pumpHistoryFocus) ?? pumpInsights[0]
-  const selectedEngineerAssignment = selectedEngineer
-    ? openTickets.find((ticket) => ticket.id === selectedEngineer.currentAssignment)
+  const selectedEngineerAssignment = ownEngineerId
+    ? openTickets.find((ticket) => ticket.assignedEngineerId === ownEngineerId) ?? null
     : null
 
-  const isManager = authUser?.role === 'manager'
   const workspaceView = isManager ? 'manager' : 'engineer'
+
+  const openAccountModal = () => {
+    if (!authUser) return
+    setAccountModalForm({
+      name: authUser.name,
+      username: authUser.username,
+      password: authUser.password,
+    })
+    setAccountModalNotice('')
+    setAccountModalOpen(true)
+  }
 
   if (!authUser) {
     return (
@@ -1086,7 +1523,10 @@ function App() {
 
   <div className="topbar-controls">
     <div className="user-badge">
-      <strong>{authUser.name}</strong>
+      <span>{authUser.role.toUpperCase()}</span>
+      <button type="button" className="user-name-btn" onClick={openAccountModal}>
+        {authUser.name}
+      </button>
       <button type="button" className="link-btn" onClick={handleLogout}>
         Logout
       </button>
@@ -1357,10 +1797,10 @@ function App() {
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
                     className="ai-input"
-                    placeholder="Ask Gemini about the island..."
+                    placeholder="Ask Flare about anomalies, dispatch choices, production impact, or maintenance recommendations..."
                   ></textarea>
                   <button type="submit" className="btn" disabled={isAiBusy || !chatInput.trim()}>
-                    {isAiBusy ? 'THINKING...' : 'ASK GEMINI'}
+                    {isAiBusy ? 'THINKING...' : 'ASK FLARE'}
                   </button>
                 </form>
               </aside>
@@ -1368,7 +1808,7 @@ function App() {
           )}
 
           {managerTab === 'incidentReports' && (
-            <section className="surface manager-surface">
+            <section className="surface manager-surface incident-report-surface">
               <div className="panel-header panel-header-spread">
                 <div>
                   <div className="eyebrow">ALL TICKET HISTORY LOG</div>
@@ -1458,6 +1898,11 @@ function App() {
                             <tr key={`${ticket.id}-expanded`} className="expanded-row">
                               <td colSpan="7">
                                 <div className="report-body">{ticket.report}</div>
+                                {ticket.reportedSnapshot ? (
+                                  <div className="report-body" style={{ marginTop: '8px', color: '#9ec5d8' }}>
+                                    Snapshot {formatDate(ticket.reportedSnapshot.capturedAt)}: {ticket.reportedSnapshot.status.toUpperCase()} · temp {ticket.reportedSnapshot.temp} degC · pressure {ticket.reportedSnapshot.pressure} psi · flow {ticket.reportedSnapshot.flow} L/min · vibe {ticket.reportedSnapshot.vibe} Hz
+                                  </div>
+                                ) : null}
                               </td>
                             </tr>
                           )}
@@ -1471,18 +1916,29 @@ function App() {
           )}
 
           {managerTab === 'ongoingTickets' && (
-            <section className="manager-split-grid">
+            <section className="manager-split-grid ticket-workspace">
               <div className="surface tickets-column">
                 <div className="panel-header">
                   <div>
                     <div className="eyebrow">ACTIVE RESPONSE</div>
                     <h2>Ongoing Tickets</h2>
                   </div>
-                  <p>{openTickets.length} open</p>
+                  <p>{openTickets.length} open / {tickets.length} total</p>
+                </div>
+
+                <div className="filter-bar">
+                  <select
+                    value={managerTicketFilter}
+                    onChange={(event) => setManagerTicketFilter(event.target.value)}
+                  >
+                    <option value="all">All Tickets</option>
+                    <option value="open">Open Tickets</option>
+                    <option value="resolved">Resolved Tickets</option>
+                  </select>
                 </div>
 
                 <div className="ticket-stack">
-                  {openTickets.map((ticket) => {
+                  {visibleTickets.map((ticket) => {
                     const pump = PUMP_BY_ID[ticket.pumpId]
                     const stage = getTicketStage(ticket, tick)
                     const slaRemaining = getSlaRemaining(ticket, tick)
@@ -1546,8 +2002,8 @@ function App() {
                         <strong>{selectedTicket.pumpId}</strong>
                       </div>
                       <div className="detail-chip">
-                        <span>Stage</span>
-                        <strong>{getTicketStage(selectedTicket, tick)}</strong>
+                        <span>Status</span>
+                        <strong>{toReadableStatus(selectedTicket.workflowStatus || selectedTicket.status)}</strong>
                       </div>
                       <div className="detail-chip">
                         <span>SLA</span>
@@ -1559,6 +2015,35 @@ function App() {
                       </div>
                     </div>
 
+                    <div className="controls">
+                      <select
+                        className="ticket-control-select"
+                        value={selectedTicket.assignedEngineerId || ''}
+                        onChange={(event) => assignTicketToEngineer(selectedTicket.id, event.target.value)}
+                      >
+                        <option value="">Unassigned</option>
+                        {engineers
+                          .filter((engineer) => engineer.isActive)
+                          .map((engineer) => (
+                            <option key={engineer.id} value={engineer.id}>
+                              {engineer.name} ({engineer.status})
+                            </option>
+                          ))}
+                      </select>
+                      <select
+                        className="ticket-control-select"
+                        value={selectedTicket.workflowStatus || 'in_progress'}
+                        onChange={(event) => {
+                          updateTicketStatus(selectedTicket.id, event.target.value)
+                        }}
+                      >
+                        <option value="assigned">Assigned</option>
+                        <option value="en_route">En Route</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="resolved">Resolved</option>
+                      </select>
+                    </div>
+
                     <div className="ticket-notes">
                       <h3>AI Dispatch Recommendation</h3>
                       <p>{selectedTicket.dispatchRecommendation}</p>
@@ -1567,9 +2052,9 @@ function App() {
                     <div className="ticket-thread">
                       <h3>Live Chat Thread</h3>
                       {selectedTicket.thread.map((entry) => (
-                        <div key={entry.id} className={`thread-entry thread-${entry.author}`}>
+                        <div key={entry.id} className={`thread-entry thread-${entry.authorRole || 'system'}`}>
                           <div className="thread-meta">
-                            <span>{entry.author.toUpperCase()}</span>
+                            <span>{entry.author}</span>
                             <span>{entry.time}</span>
                           </div>
                           <p>{entry.message}</p>
@@ -1713,175 +2198,378 @@ function App() {
               </div>
             </section>
           )}
+
         </>
       ) : (
-        <section className="engineer-workspace">
-          <div className="surface engineer-queue">
-            <div className="panel-header">
-              <div>
-                <div className="eyebrow">FIELD ASSIGNMENTS</div>
-                <h2>Engineer Console</h2>
-              </div>
-              <p>{selectedEngineer?.name ?? 'No engineer selected'}</p>
-            </div>
+        <>
+          <nav className="tab-strip">
+            {ENGINEER_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={engineerTab === tab.id ? 'active' : ''}
+                onClick={() => setEngineerTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
 
-            <div className="engineer-selection-row">
-              {engineers.map((engineer) => (
-                <button
-                  key={engineer.id}
-                  type="button"
-                  className={`engineer-card compact ${selectedEngineerId === engineer.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedEngineerId(engineer.id)}
-                >
-                  <strong>{engineer.name}</strong>
-                  <span>{engineer.status}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="field-summary-grid">
-              <div className="detail-chip">
-                <span>Status</span>
-                <strong>{selectedEngineer?.status ?? '--'}</strong>
-              </div>
-              <div className="detail-chip">
-                <span>Location</span>
-                <strong>{selectedEngineer?.location ?? '--'}</strong>
-              </div>
-              <div className="detail-chip">
-                <span>Current Assignment</span>
-                <strong>{selectedEngineer?.currentAssignment ?? 'None'}</strong>
-              </div>
-              <div className="detail-chip">
-                <span>ETA</span>
-                <strong>
-                  {selectedEngineer?.etaMinutes === null || selectedEngineer?.etaMinutes === undefined
-                    ? '--'
-                    : `${selectedEngineer.etaMinutes} min`}
-                </strong>
-              </div>
-            </div>
-
-            <div className="checklist-block">
-              <h3>Field Checklist</h3>
-              <ul>
-                <li>Confirm pump isolation status before intervention.</li>
-                <li>Validate thermal and vibration readings against handheld instruments.</li>
-                <li>Post update to live ticket thread at every stage change.</li>
-                <li>Escalate immediately if pressure loss threatens daily throughput target.</li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="surface engineer-assignment-detail">
-            <div className="panel-header">
-              <div>
-                <div className="eyebrow">MY ACTIVE TICKET</div>
-                <h2>{selectedEngineerAssignment?.id ?? 'No Assigned Ticket'}</h2>
-              </div>
-              <p>
-                {selectedEngineerAssignment
-                  ? `${selectedEngineerAssignment.pumpId} · ${getTicketStage(selectedEngineerAssignment, tick)}`
-                  : 'Stand by'}
-              </p>
-            </div>
-
-            {selectedEngineerAssignment ? (
-              <>
-                <StagePipeline stage={getTicketStage(selectedEngineerAssignment, tick)} />
-                <div className="ticket-notes">
-                  <h3>Dispatch Brief</h3>
-                  <p>{selectedEngineerAssignment.dispatchRecommendation}</p>
+          {engineerTab === 'myTickets' && (
+            <section className="manager-split-grid">
+              <div className="surface tickets-column">
+                <div className="panel-header">
+                  <div>
+                    <div className="eyebrow">MY ASSIGNMENTS</div>
+                    <h2>My Tickets</h2>
+                  </div>
+                  <p>{visibleTickets.length} tickets</p>
                 </div>
-                <div className="ticket-thread engineer-thread">
-                  <h3>Live Thread</h3>
-                  {selectedEngineerAssignment.thread.map((entry) => (
-                    <div key={entry.id} className={`thread-entry thread-${entry.author}`}>
-                      <div className="thread-meta">
-                        <span>{entry.author.toUpperCase()}</span>
-                        <span>{entry.time}</span>
+                <div className="ticket-stack">
+                  {visibleTickets.map((ticket) => {
+                    const pump = PUMP_BY_ID[ticket.pumpId]
+                    return (
+                      <button
+                        key={ticket.id}
+                        type="button"
+                        className={`ticket-card ${selectedTicket?.id === ticket.id ? 'selected' : ''}`}
+                        onClick={() => setSelectedTicketId(ticket.id)}
+                      >
+                        <div className="ticket-card-top">
+                          <div>
+                            <strong>{ticket.id}</strong>
+                            <p>
+                              {pump.name} · {pump.zone}
+                            </p>
+                          </div>
+                          <span className={`severity-pill severity-${ticket.severity}`}>{ticket.severity}</span>
+                        </div>
+                        <StagePipeline stage={getTicketStage(ticket, tick)} />
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="surface ticket-detail-column">
+                {selectedTicket ? (
+                  <>
+                    <div className="panel-header">
+                      <div>
+                        <div className="eyebrow">LIVE TICKET</div>
+                        <h2>{selectedTicket.id}</h2>
                       </div>
-                      <p>{entry.message}</p>
+                      <p>{selectedTicket.pumpId}</p>
+                    </div>
+                    <StagePipeline stage={getTicketStage(selectedTicket, tick)} />
+                    <div className="controls">
+                      <select
+                        value={selectedTicket.workflowStatus || 'in_progress'}
+                        onChange={(event) => updateTicketStatus(selectedTicket.id, event.target.value)}
+                      >
+                        <option value="assigned">Assigned</option>
+                        <option value="en_route">En Route</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="resolved">Resolved</option>
+                      </select>
+                    </div>
+                    <div className="ticket-thread engineer-thread">
+                      <h3>Live Thread</h3>
+                      {selectedTicket.thread.map((entry) => (
+                        <div key={entry.id} className={`thread-entry thread-${entry.authorRole || 'system'}`}>
+                          <div className="thread-meta">
+                            <span>{entry.author}</span>
+                            <span>{entry.time}</span>
+                          </div>
+                          <p>{entry.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="ticket-update-box">
+                      <textarea
+                        value={ticketUpdateInput}
+                        onChange={(event) => setTicketUpdateInput(event.target.value)}
+                        placeholder="Send update from the field..."
+                      ></textarea>
+                      <button type="button" className="btn" onClick={sendTicketUpdate}>
+                        POST FIELD UPDATE
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="empty-state">No tickets are currently assigned.</div>
+                )}
+              </div>
+
+              <div className="surface engineer-ai-side">
+                <div className="panel-header">
+                  <div>
+                    <div className="eyebrow">MY PROFILE</div>
+                    <h2>{ownEngineerProfile?.name || 'Engineer Profile'}</h2>
+                  </div>
+                </div>
+                {ownEngineerProfile ? (
+                  <div className="ticket-update-box">
+                    <label>
+                      Is Active
+                      <select
+                        value={ownEngineerProfile.isActive ? 'true' : 'false'}
+                        onChange={(event) => updateEngineerProfile(ownEngineerProfile.id, { isActive: event.target.value === 'true' })}
+                      >
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </select>
+                    </label>
+                    <label>
+                      On Call
+                      <select
+                        value={ownEngineerProfile.onCall ? 'true' : 'false'}
+                        onChange={(event) => updateEngineerProfile(ownEngineerProfile.id, { onCall: event.target.value === 'true' })}
+                      >
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </select>
+                    </label>
+                    <label>
+                      Current Location
+                      <input
+                        type="text"
+                        value={ownEngineerProfile.currentLocation}
+                        onChange={(event) => updateEngineerProfile(ownEngineerProfile.id, { currentLocation: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Profile Photo URL
+                      <input
+                        type="text"
+                        value={ownEngineerProfile.profilePhoto}
+                        onChange={(event) => updateEngineerProfile(ownEngineerProfile.id, { profilePhoto: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      ETA Minutes
+                      <input
+                        type="number"
+                        min="0"
+                        value={ownEngineerProfile.etaMinutes}
+                        onChange={(event) => updateEngineerProfile(ownEngineerProfile.id, { etaMinutes: Number(event.target.value) })}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="empty-state">No profile attached to this account.</div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {engineerTab === 'mapLog' && (
+            <section className="manager-grid">
+              <section className="surface map-surface">
+                <div className="map-title">
+                  HACK ISLAND - <span>FIELD OPS GRID</span>
+                </div>
+                <div className="live-indicator">
+                  <div className="dot"></div>
+                  <span>{clock}</span>
+                </div>
+                <svg className="island-map" viewBox="0 0 700 500" role="img" aria-label="Pump telemetry map">
+                  <rect width="700" height="500" fill="#060d14" />
+                  {telemetryState.map((pump) => {
+                    const status = getStatus(pump)
+                    const color = status === 'crit' ? '#ff3b3b' : status === 'warn' ? '#ffaa00' : '#00e87a'
+                    return (
+                      <g key={pump.id} transform={`translate(${pump.x},${pump.y})`} onClick={() => setSelectedId(pump.id)}>
+                        <circle r="11" fill="#0a0e14" stroke={color} strokeWidth="1.5" />
+                        <circle r="5" fill={color} />
+                      </g>
+                    )
+                  })}
+                </svg>
+              </section>
+
+              <aside className="surface telemetry-rail">
+                <div className="panel-header">
+                  <div>
+                    <div className="eyebrow">LIVE TELEMETRY</div>
+                  </div>
+                </div>
+                <div className="pump-list">
+                  {telemetryState.map((pump) => {
+                    const status = getStatus(pump)
+                    return (
+                      <button key={pump.id} type="button" className={`pump-card ${status}`} onClick={() => setPumpHistoryFocus(pump.id)}>
+                        <div className="pump-card-header">
+                          <span className="pump-id">{pump.id}</span>
+                          <span className={`pump-status status-${status}`}>{status.toUpperCase()}</span>
+                        </div>
+                        <div className="pump-metric-label">Temp {Math.round(pump.temp)} degC</div>
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="log-area">
+                  <h3>EVENT LOG</h3>
+                  {logs.map((entry) => (
+                    <div key={entry.id} className="log-entry">
+                      <span className="log-t">{entry.time}</span>
+                      <span className={`log-${entry.level}`}>{entry.message}</span>
                     </div>
                   ))}
                 </div>
-                <div className="ticket-update-box">
-                  <textarea
-                    value={ticketUpdateInput}
-                    onChange={(event) => setTicketUpdateInput(event.target.value)}
-                    placeholder="Send update from the field..."
-                  ></textarea>
-                  <button type="button" className="btn" onClick={sendTicketUpdate}>
-                    POST FIELD UPDATE
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="empty-state">No active assignment for this engineer.</div>
-            )}
-          </div>
+              </aside>
 
-          <div className="surface engineer-ai-side">
-            <div className="panel-header">
-              <div>
-                <div className="eyebrow">AI FIELD ASSIST</div>
-                <h2>Gemini Copilot</h2>
-              </div>
-              <p>Use for troubleshooting and handoff notes.</p>
-            </div>
-
-            <div className="ai-prompts engineer-prompts">
-              <button
-                type="button"
-                className="btn"
-                onClick={() =>
-                  setChatInput('What tools and safety checks should the assigned engineer bring for the current ticket?')
-                }
-              >
-                TOOLING CHECK
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={() =>
-                  setChatInput('Summarize the likely root cause for the active field ticket and what to inspect first.')
-                }
-              >
-                ROOT CAUSE
-              </button>
-            </div>
-
-            <div className="ai-chat-feed engineer-chat-feed">
-              {chatMessages.map((message) => (
-                <div key={message.id} className={`ai-msg ai-msg-${message.role}`}>
-                  <div className="ai-msg-meta">
-                    <span>{message.role.toUpperCase()}</span>
-                    <span>{message.ts}</span>
+              <aside className="surface ai-panel">
+                <div className="panel-header">
+                  <div>
+                    <div className="eyebrow">ASSISTED CONTEXT</div>
                   </div>
-                  <p>{message.text}</p>
                 </div>
-              ))}
-            </div>
+                <div className="ai-context">
+                  <h3>LIVE CONTEXT SNAPSHOT</h3>
+                  <p>
+                    Faulted pumps: <strong>{telemetryContext.faultedPumps.join(', ') || 'NONE'}</strong>
+                  </p>
+                  <p className="ai-summary">{summaryLine}</p>
+                </div>
+              </aside>
+            </section>
+          )}
 
-            <form
-              className="ai-input-wrap"
-              onSubmit={(event) => {
-                event.preventDefault()
-                sendToAi()
-              }}
-            >
-              <textarea
-                value={chatInput}
-                onChange={(event) => setChatInput(event.target.value)}
-                className="ai-input"
-                placeholder="Ask the field copilot for steps, checks, or an engineer-ready incident summary..."
-              ></textarea>
-              <button type="submit" className="btn" disabled={isAiBusy || !chatInput.trim()}>
-                {isAiBusy ? 'THINKING...' : 'ASK GEMINI'}
+          {engineerTab === 'incidentReports' && (
+            <section className="surface manager-surface incident-report-surface">
+              <div className="panel-header panel-header-spread">
+                <div>
+                  <div className="eyebrow">ALL TICKET HISTORY LOG</div>
+                  <h2>Incident Reports</h2>
+                </div>
+              </div>
+              <div className="table-shell">
+                <table className="incident-table">
+                  <thead>
+                    <tr>
+                      <th>Ticket</th>
+                      <th>Pump</th>
+                      <th>Severity</th>
+                      <th>Date</th>
+                      <th>Status</th>
+                      <th>MTTR</th>
+                      <th>Report</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredHistory.map((ticket) => (
+                      <tr key={ticket.id}>
+                        <td>{ticket.id}</td>
+                        <td>{ticket.pumpId}</td>
+                        <td>{ticket.severity}</td>
+                        <td>{formatDate(ticket.openedAt)}</td>
+                        <td>{ticket.status}</td>
+                        <td>{ticket.status === 'resolved' ? `${getOpenMinutes(ticket, tick)} min` : '--'}</td>
+                        <td>{ticket.report}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {engineerTab === 'pumpHistory' && (
+            <section className="manager-split-grid history-grid">
+              <div className="surface pump-history-column">
+                <div className="panel-header">
+                  <div>
+                    <div className="eyebrow">30-DAY HEALTH</div>
+                    <h2>Pump History</h2>
+                  </div>
+                </div>
+                <div className="history-card-stack">
+                  {pumpInsights.map((pump) => (
+                    <button
+                      key={pump.id}
+                      type="button"
+                      className={`history-card ${pumpHistoryFocus === pump.id ? 'selected' : ''}`}
+                      onClick={() => setPumpHistoryFocus(pump.id)}
+                    >
+                      <div className="history-card-top">
+                        <strong>{pump.id}</strong>
+                        <span>{pump.failures90d} incidents / 90d</span>
+                      </div>
+                      <div className="mini-chart">
+                        {pump.healthTimeline.map((point, index) => (
+                          <span key={`${pump.id}-${index}`} style={{ height: `${point}%` }}></span>
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="surface history-detail-column">
+                {selectedPumpHistory ? (
+                  <>
+                    <div className="panel-header">
+                      <div>
+                        <div className="eyebrow">CURRENT HISTORY DETAIL</div>
+                        <h2>{selectedPumpHistory.id}</h2>
+                      </div>
+                      <p>{selectedPumpHistory.name}</p>
+                    </div>
+                    <div className="history-detail-grid">
+                      <div className="detail-chip">
+                        <span>Latest Health</span>
+                        <strong>{selectedPumpHistory.latestScore}/100</strong>
+                      </div>
+                      <div className="detail-chip">
+                        <span>Sensor Reliability</span>
+                        <strong>{selectedPumpHistory.sensorReliability}%</strong>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </section>
+          )}
+
+        </>
+      )}
+
+      {accountModalOpen && (
+        <div className="account-modal-backdrop" role="presentation" onClick={() => setAccountModalOpen(false)}>
+          <section className="surface account-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="panel-header panel-header-spread">
+              <div>
+                <div className="eyebrow">ACCOUNT SETTINGS</div>
+                <h2>Update My Account</h2>
+              </div>
+              <button type="button" className="link-btn" onClick={() => setAccountModalOpen(false)}>
+                CLOSE
               </button>
+            </div>
+            <form className="account-form account-form-modal" onSubmit={updateOwnAccount}>
+              <input
+                type="text"
+                placeholder="Name"
+                value={accountModalForm.name}
+                onChange={(event) => setAccountModalForm((previous) => ({ ...previous, name: event.target.value }))}
+              />
+              <input
+                type="text"
+                placeholder="Username"
+                value={accountModalForm.username}
+                onChange={(event) => setAccountModalForm((previous) => ({ ...previous, username: event.target.value }))}
+              />
+              <input
+                type="text"
+                placeholder="Password"
+                value={accountModalForm.password}
+                onChange={(event) => setAccountModalForm((previous) => ({ ...previous, password: event.target.value }))}
+              />
+              <button type="submit" className="btn">SAVE ACCOUNT</button>
             </form>
-          </div>
-        </section>
+            {accountModalNotice ? <div className="account-notice">{accountModalNotice}</div> : null}
+          </section>
+        </div>
       )}
     </div>
   )

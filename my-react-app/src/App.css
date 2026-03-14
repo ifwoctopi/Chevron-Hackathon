@@ -19,6 +19,9 @@
   --text: #d8e6f1;
   --muted: #6f8796;
   --shadow: 0 24px 50px rgba(0, 0, 0, 0.25);
+  --scroll-track: rgba(9, 14, 22, 0.9);
+  --scroll-thumb: rgba(0, 212, 255, 0.55);
+  --scroll-thumb-hover: rgba(0, 212, 255, 0.82);
 }
 
 body {
@@ -27,6 +30,7 @@ body {
     linear-gradient(180deg, #071019 0%, #0a1119 100%);
   color: var(--text);
   font-family: 'IBM Plex Sans', sans-serif;
+  overflow-y: scroll;
 }
 
 button,
@@ -34,6 +38,101 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+.kpi-strip,
+.tab-strip,
+.table-shell,
+.account-modal,
+.account-list,
+.pump-list,
+.ai-chat-feed,
+.ticket-stack,
+.engineer-stack,
+.history-card-stack,
+.log-area,
+.ticket-thread,
+.engineer-thread,
+.engineer-chat-feed,
+.ticket-workspace > .surface {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+.kpi-strip::-webkit-scrollbar,
+.tab-strip::-webkit-scrollbar,
+.table-shell::-webkit-scrollbar,
+.account-modal::-webkit-scrollbar,
+.account-list::-webkit-scrollbar,
+.pump-list::-webkit-scrollbar,
+.ai-chat-feed::-webkit-scrollbar,
+.ticket-stack::-webkit-scrollbar,
+.engineer-stack::-webkit-scrollbar,
+.history-card-stack::-webkit-scrollbar,
+.log-area::-webkit-scrollbar,
+.ticket-thread::-webkit-scrollbar,
+.engineer-thread::-webkit-scrollbar,
+.engineer-chat-feed::-webkit-scrollbar,
+.ticket-workspace > .surface::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.kpi-strip::-webkit-scrollbar-track,
+.tab-strip::-webkit-scrollbar-track,
+.table-shell::-webkit-scrollbar-track,
+.account-modal::-webkit-scrollbar-track,
+.account-list::-webkit-scrollbar-track,
+.pump-list::-webkit-scrollbar-track,
+.ai-chat-feed::-webkit-scrollbar-track,
+.ticket-stack::-webkit-scrollbar-track,
+.engineer-stack::-webkit-scrollbar-track,
+.history-card-stack::-webkit-scrollbar-track,
+.log-area::-webkit-scrollbar-track,
+.ticket-thread::-webkit-scrollbar-track,
+.engineer-thread::-webkit-scrollbar-track,
+.engineer-chat-feed::-webkit-scrollbar-track,
+.ticket-workspace > .surface::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+  border-radius: 999px;
+}
+
+.kpi-strip::-webkit-scrollbar-thumb,
+.tab-strip::-webkit-scrollbar-thumb,
+.table-shell::-webkit-scrollbar-thumb,
+.account-modal::-webkit-scrollbar-thumb,
+.account-list::-webkit-scrollbar-thumb,
+.pump-list::-webkit-scrollbar-thumb,
+.ai-chat-feed::-webkit-scrollbar-thumb,
+.ticket-stack::-webkit-scrollbar-thumb,
+.engineer-stack::-webkit-scrollbar-thumb,
+.history-card-stack::-webkit-scrollbar-thumb,
+.log-area::-webkit-scrollbar-thumb,
+.ticket-thread::-webkit-scrollbar-thumb,
+.engineer-thread::-webkit-scrollbar-thumb,
+.engineer-chat-feed::-webkit-scrollbar-thumb,
+.ticket-workspace > .surface::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(0, 212, 255, 0.78), rgba(0, 232, 122, 0.45));
+  border-radius: 999px;
+  border: 2px solid var(--scroll-track);
+}
+
+.kpi-strip::-webkit-scrollbar-thumb:hover,
+.tab-strip::-webkit-scrollbar-thumb:hover,
+.table-shell::-webkit-scrollbar-thumb:hover,
+.account-modal::-webkit-scrollbar-thumb:hover,
+.account-list::-webkit-scrollbar-thumb:hover,
+.pump-list::-webkit-scrollbar-thumb:hover,
+.ai-chat-feed::-webkit-scrollbar-thumb:hover,
+.ticket-stack::-webkit-scrollbar-thumb:hover,
+.engineer-stack::-webkit-scrollbar-thumb:hover,
+.history-card-stack::-webkit-scrollbar-thumb:hover,
+.log-area::-webkit-scrollbar-thumb:hover,
+.ticket-thread::-webkit-scrollbar-thumb:hover,
+.engineer-thread::-webkit-scrollbar-thumb:hover,
+.engineer-chat-feed::-webkit-scrollbar-thumb:hover,
+.ticket-workspace > .surface::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(0, 212, 255, 0.92), rgba(0, 232, 122, 0.6));
 }
 
 .ops-shell {
@@ -155,6 +254,7 @@ textarea {
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 28px;
   letter-spacing: 0.02em;
+  line-height: 1;
   color: #f2fbff;
   margin: 0;
 }
@@ -189,6 +289,19 @@ textarea {
 
 .user-badge strong {
   font-size: 14px;
+}
+
+.user-name-btn {
+  border: none;
+  background: transparent;
+  color: #f2fbff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.user-name-btn:hover {
+  color: var(--accent);
 }
 
 .role-switch {
@@ -297,15 +410,6 @@ textarea {
   -webkit-overflow-scrolling: touch;
 }
 
-.kpi-strip::-webkit-scrollbar {
-  height: 6px;
-}
-
-.kpi-strip::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-}
-
 .metric-card {
   background: rgba(15, 26, 38, 0.88);
   border: 1px solid var(--border);
@@ -350,15 +454,29 @@ textarea {
 
 .tab-strip {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  align-items: center;
+  min-height: 44px;
+  max-height: 44px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tab-strip button {
   background: rgba(12, 20, 29, 0.9);
   border: 1px solid var(--border);
-  padding: 8px 12px;
+  padding: 0 12px;
   font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  line-height: 1;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .manager-grid {
@@ -476,6 +594,8 @@ textarea {
 .panel-header h2 {
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 28px;
+  line-height: 1;
+  margin: 0;
   color: #f2fbff;
 }
 
@@ -875,8 +995,87 @@ textarea {
 .incident-table thead th {
   color: var(--muted);
   font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
   letter-spacing: 0.1em;
   font-family: 'Share Tech Mono', monospace;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.manager-surface .panel-header h2 {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.manager-surface .panel-header.panel-header-spread {
+  min-height: 88px;
+  align-items: center;
+}
+
+.manager-surface .panel-header.panel-header-spread .eyebrow {
+  min-height: 14px;
+  line-height: 1;
+}
+
+.manager-surface .panel-header.panel-header-spread .btn {
+  white-space: nowrap;
+}
+
+.manager-surface .incident-table thead th {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.incident-report-surface .panel-header {
+  padding: 14px 18px 10px;
+}
+
+.incident-report-surface .panel-header.panel-header-spread > div {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.incident-report-surface .panel-header h2 {
+  font-size: 24px;
+  line-height: 24px;
+}
+
+.incident-report-surface .panel-header.panel-header-spread {
+  height: 72px;
+  min-height: 72px;
+  max-height: 72px;
+  align-items: center;
+}
+
+.incident-report-surface .filter-bar {
+  height: 60px;
+  min-height: 60px;
+  max-height: 60px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.incident-report-surface .filter-bar select {
+  height: 40px;
+}
+
+.incident-report-surface .incident-table thead tr {
+  height: 42px;
+}
+
+.incident-report-surface .incident-table thead th {
+  height: 42px;
+  padding-top: 9px;
+  padding-bottom: 9px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  vertical-align: middle;
 }
 
 .expanded-row td {
@@ -899,6 +1098,16 @@ textarea {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr) 320px;
   gap: 16px;
+}
+
+.ticket-workspace {
+  align-items: start;
+}
+
+.ticket-workspace > .surface {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  min-height: 0;
 }
 
 /* Pump history only needs two columns so it doesn't leave a large empty 3rd panel */
@@ -951,6 +1160,27 @@ textarea {
   font-size: 13px;
 }
 
+.account-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(4, 8, 13, 0.7);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.account-modal {
+  width: min(680px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.account-form.account-form-modal {
+  padding: 16px;
+  grid-template-columns: 1fr;
+}
+
 .account-list {
   border-top: 1px solid rgba(33, 50, 67, 0.85);
   padding-top: 8px;
@@ -975,6 +1205,42 @@ textarea {
 .engineer-assignment-detail,
 .engineer-ai-side {
   min-height: 680px;
+}
+
+.ticket-control-select {
+  appearance: none;
+  min-width: 188px;
+  padding: 11px 42px 11px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 212, 255, 0.22);
+  background:
+    linear-gradient(45deg, transparent 50%, rgba(0, 212, 255, 0.8) 50%),
+    linear-gradient(135deg, rgba(0, 212, 255, 0.8) 50%, transparent 50%),
+    linear-gradient(180deg, rgba(10, 19, 28, 0.98), rgba(7, 13, 19, 0.98));
+  background-position:
+    calc(100% - 19px) calc(50% - 3px),
+    calc(100% - 13px) calc(50% - 3px),
+    0 0;
+  background-size: 6px 6px, 6px 6px, 100% 100%;
+  background-repeat: no-repeat;
+  color: #f2fbff;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.ticket-control-select:hover,
+.ticket-control-select:focus {
+  border-color: rgba(0, 212, 255, 0.45);
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.18);
+}
+
+.ticket-control-select option {
+  color: #f2fbff;
+  background: #0a121a;
 }
 
 .ticket-card,
@@ -1212,7 +1478,7 @@ textarea {
   }
 
   .topbar h1 {
-    font-size: 34px;
+    font-size: 28px;
   }
 
   .metric-value {
@@ -1227,6 +1493,18 @@ textarea {
   .panel-header-spread {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .incident-report-surface .panel-header.panel-header-spread,
+  .incident-report-surface .filter-bar {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .incident-report-surface .filter-bar {
+    flex-wrap: wrap;
+    overflow-x: visible;
   }
 
   .pump-metrics,
@@ -1252,15 +1530,9 @@ textarea {
 .pump-list {
   flex: 1;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
   height: calc(100% - 200px); /* 60px = panel header height */
   overflow-y: auto;
 }
-
-.pump-list::-webkit-scrollbar { width: 2px; }
-.pump-list::-webkit-scrollbar-track { background: transparent; }
-.pump-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 999px; }
 
 .ai-chat-feed {
   flex: 1;
