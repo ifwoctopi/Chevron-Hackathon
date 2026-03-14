@@ -116,6 +116,30 @@ const P_WARN = 115
 const PUMP_BY_ID = Object.fromEntries(PUMPS.map((pump) => [pump.id, pump]))
 const pumpHistorySeed = buildPumpHistorySeed()
 
+function createInitialAccounts() {
+  const managerAccount = {
+    id: 'ACC-MGR-01',
+    name: 'Island Manager',
+    username: 'manager',
+    password: 'manager123',
+    role: 'manager',
+    engineerId: null,
+    createdAt: new Date().toISOString(),
+  }
+
+  const engineerAccounts = ENGINEER_DIRECTORY.map((engineer) => ({
+    id: `ACC-${engineer.id}`,
+    name: engineer.name,
+    username: engineer.name.toLowerCase().replace(/[^a-z0-9]+/g, '.'),
+    password: 'engineer123',
+    role: 'engineer',
+    engineerId: engineer.id,
+    createdAt: new Date().toISOString(),
+  }))
+
+  return [managerAccount, ...engineerAccounts]
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
@@ -345,7 +369,7 @@ function deriveEngineers(tickets, tick) {
     if (!assignment) {
       return {
         ...engineer,
-        status: engineer.shift === 'Off' ? 'Off Shift' : 'Available',
+        status: engineer.shift === 'Off' ? 'Off Shift' : ' Available',
         location: engineer.homeZone,
         currentAssignment: 'None',
         etaMinutes: null,
@@ -498,6 +522,18 @@ function StagePipeline({ stage }) {
 }
 
 function App() {
+  const [accounts, setAccounts] = useState(createInitialAccounts)
+  const [authUser, setAuthUser] = useState(null)
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' })
+  const [loginError, setLoginError] = useState('')
+  const [accountForm, setAccountForm] = useState({
+    name: '',
+    username: '',
+    password: '',
+    engineerId: 'ENG-01',
+  })
+  const [accountNotice, setAccountNotice] = useState('')
+
   const [telemetryState, setTelemetryState] = useState(createInitialState)
   const [selectedId, setSelectedId] = useState('PMP-04')
   const [clock, setClock] = useState(formatClock)
@@ -507,7 +543,6 @@ function App() {
     { id: 'log-2', time: formatClock(), message: 'INC-2404 active at South Output', level: 'warn' },
   ])
   const [tickets, setTickets] = useState(createInitialTickets)
-  const [workspaceMode, setWorkspaceMode] = useState('manager')
   const [managerTab, setManagerTab] = useState('dashboard')
   const [selectedTicketId, setSelectedTicketId] = useState('INC-2404')
   const [selectedEngineerId, setSelectedEngineerId] = useState('ENG-02')
@@ -895,10 +930,119 @@ function App() {
     }
   }
 
+  const handleLogin = (event) => {
+    event.preventDefault()
+    const username = loginForm.username.trim().toLowerCase()
+    const password = loginForm.password.trim()
+
+    const account = accounts.find(
+      (item) => item.username.toLowerCase() === username && item.password === password,
+    )
+
+    if (!account) {
+      setLoginError('Invalid username or password.')
+      return
+    }
+
+    setAuthUser(account)
+    setLoginError('')
+
+    if (account.role !== 'manager' && account.engineerId) {
+      setSelectedEngineerId(account.engineerId)
+    }
+  }
+
+  const handleLogout = () => {
+    setAuthUser(null)
+    setLoginForm({ username: '', password: '' })
+    setLoginError('')
+  }
+
+  const createEngineerAccount = (event) => {
+    event.preventDefault()
+
+    const payload = {
+      name: accountForm.name.trim(),
+      username: accountForm.username.trim().toLowerCase(),
+      password: accountForm.password.trim(),
+      engineerId: accountForm.engineerId,
+    }
+
+    if (!payload.name || !payload.username || !payload.password) {
+      setAccountNotice('Name, username, and password are required.')
+      return
+    }
+
+    if (accounts.some((account) => account.username.toLowerCase() === payload.username)) {
+      setAccountNotice('That username already exists.')
+      return
+    }
+
+    const newAccount = {
+      id: `ACC-NEW-${Date.now()}`,
+      role: 'engineer',
+      createdAt: new Date().toISOString(),
+      ...payload,
+    }
+
+    setAccounts((previous) => [newAccount, ...previous])
+    setAccountForm({ name: '', username: '', password: '', engineerId: payload.engineerId })
+    setAccountNotice(`Engineer account created for ${payload.name}.`)
+  }
+
   const selectedPumpHistory = pumpInsights.find((pump) => pump.id === pumpHistoryFocus) ?? pumpInsights[0]
   const selectedEngineerAssignment = selectedEngineer
     ? openTickets.find((ticket) => ticket.id === selectedEngineer.currentAssignment)
     : null
+
+  const isManager = authUser?.role === 'manager'
+  const workspaceView = isManager ? 'manager' : 'engineer'
+
+  if (!authUser) {
+    return (
+      <div className="login-shell">
+        <section className="login-card surface">
+          <div className="eyebrow">CHEVRON HACK ISLAND</div>
+          <h1>Operations Login</h1>
+          <p className="login-copy">
+            Sign in as manager or engineer to access the proper workspace.
+          </p>
+
+          <form className="login-form" onSubmit={handleLogin}>
+            <label>
+              Username
+              <input
+                type="text"
+                value={loginForm.username}
+                onChange={(event) =>
+                  setLoginForm((previous) => ({ ...previous, username: event.target.value }))
+                }
+                placeholder="manager"
+              />
+            </label>
+            <label>
+              Password
+              <input
+                type="password"
+                value={loginForm.password}
+                onChange={(event) =>
+                  setLoginForm((previous) => ({ ...previous, password: event.target.value }))
+                }
+                placeholder="Enter password"
+              />
+            </label>
+            {loginError ? <p className="form-error">{loginError}</p> : null}
+            <button type="submit" className="btn">SIGN IN</button>
+          </form>
+
+          <div className="login-hint">
+            <div>Demo manager: `manager` / `manager123`</div>
+            <div>Demo engineers use generated usernames with `engineer123`.</div>
+          </div>
+        </section>
+      </div>
+    )
+  }
 
   return (
     <div className="ops-shell">
@@ -912,21 +1056,15 @@ function App() {
         </div>
 
         <div className="topbar-controls">
-          <div className="role-switch">
-            <button
-              type="button"
-              className={workspaceMode === 'manager' ? 'active' : ''}
-              onClick={() => setWorkspaceMode('manager')}
-            >
-              Managerial Side
+          <div className="user-badge">
+            <span>{authUser.role.toUpperCase()}</span>
+            <strong>{authUser.name}</strong>
+            <button type="button" className="link-btn" onClick={handleLogout}>
+              Logout
             </button>
-            <button
-              type="button"
-              className={workspaceMode === 'engineer' ? 'active' : ''}
-              onClick={() => setWorkspaceMode('engineer')}
-            >
-              Engineer Side
-            </button>
+          </div>
+          <div className="role-static">
+            <span>{isManager ? 'Managerial Side' : 'Engineer Side'}</span>
           </div>
           <div className={`risk-chip risk-chip-${riskBand}`}>
             <span>Risk Heat Score</span>
@@ -956,7 +1094,7 @@ function App() {
         />
       </section>
 
-      {workspaceMode === 'manager' ? (
+      {workspaceView === 'manager' ? (
         <>
           <nav className="tab-strip">
             {MANAGER_TABS.map((tab) => (
@@ -1509,6 +1647,67 @@ function App() {
                   <h2>Available Engineers</h2>
                 </div>
                 <p>Dispatch recommendation refreshes from live incident state.</p>
+              </div>
+
+              <div className="account-admin">
+                <div className="account-admin-head">
+                  <h3>Create Engineer Account</h3>
+                  <p>Manager-only: create login access and bind it to an engineer profile.</p>
+                </div>
+                <form className="account-form" onSubmit={createEngineerAccount}>
+                  <input
+                    type="text"
+                    placeholder="Full name"
+                    value={accountForm.name}
+                    onChange={(event) =>
+                      setAccountForm((previous) => ({ ...previous, name: event.target.value }))
+                    }
+                  />
+                  <input
+                    type="text"
+                    placeholder="Username"
+                    value={accountForm.username}
+                    onChange={(event) =>
+                      setAccountForm((previous) => ({ ...previous, username: event.target.value }))
+                    }
+                  />
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    value={accountForm.password}
+                    onChange={(event) =>
+                      setAccountForm((previous) => ({ ...previous, password: event.target.value }))
+                    }
+                  />
+                  <select
+                    value={accountForm.engineerId}
+                    onChange={(event) =>
+                      setAccountForm((previous) => ({ ...previous, engineerId: event.target.value }))
+                    }
+                  >
+                    {ENGINEER_DIRECTORY.map((engineer) => (
+                      <option key={engineer.id} value={engineer.id}>
+                        {engineer.id} - {engineer.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="submit" className="btn narrow-btn">
+                    CREATE ACCOUNT
+                  </button>
+                </form>
+                {accountNotice ? <p className="account-notice">{accountNotice}</p> : null}
+
+                <div className="account-list">
+                  {accounts
+                    .filter((account) => account.role === 'engineer')
+                    .map((account) => (
+                      <div key={account.id} className="account-row">
+                        <span>{account.name}</span>
+                        <span>{account.username}</span>
+                        <span>{account.engineerId ?? '--'}</span>
+                      </div>
+                    ))}
+                </div>
               </div>
 
               <div className="engineer-grid">
