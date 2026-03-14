@@ -971,8 +971,6 @@ textarea {
 .tickets-column,
 .ticket-detail-column,
 .engineers-column,
-.pump-history-column,
-.history-detail-column,
 .engineer-queue,
 .engineer-assignment-detail,
 .engineer-ai-side {
@@ -1278,4 +1276,46 @@ textarea {
 
 .ai-input-wrap {
   margin-top: auto;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e3028;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2a4038;
+}
+
+.pump-history-column {
+  min-height: 0;        /* override the 680px */
+  height: 550px;        /* fixed height so it doesn't grow infinitely */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-card-stack {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+}
+
+.history-grid {
+  align-items: start;
+}
+
+.history-detail-column {
+  max-height: 680px;
+  overflow-y: auto;
 }
