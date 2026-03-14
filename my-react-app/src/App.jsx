@@ -681,22 +681,24 @@ function App() {
   const riskBand = getRiskBand(riskScore)
 
   const kpis = useMemo(() => {
-    const activeIncidents = openTickets.length
-    const uptime = clamp(99.3 - activeIncidents * 1.8 - riskScore * 0.03, 82.1, 99.9)
-    const engineersOnCall = engineers.filter((engineer) => engineer.status !== 'Off Shift').length
-    const estimatedProductionLoss = openTickets.reduce((sum, ticket) => {
-      if (ticket.severity === 'high') return sum + 18400
-      if (ticket.severity === 'medium') return sum + 7600
-      return sum + 2300
-    }, 0)
+  const activeIncidents = openTickets.length
+  const uptime = clamp(99.3 - activeIncidents * 1.8 - riskScore * 0.03, 82.1, 99.9)
+  const engineersOnCall = engineers.filter((engineer) => engineer.status !== 'Off Shift').length
 
-    return {
-      uptime: `${uptime.toFixed(1)}%`,
-      activeIncidents,
-      engineersOnCall,
-      estimatedProductionLoss,
-    }
-  }, [engineers, openTickets, riskScore])
+  const estimatedProductionLoss = openTickets.reduce((sum, ticket) => {
+    const pump = telemetryState.find((p) => p.id === ticket.pumpId)
+    if (!pump) return sum
+    const degradation = Math.max(0, pump.temp - 85) * 200 + Math.max(0, pump.vibe - 50) * 150
+    return sum + degradation
+  }, 0)
+
+  return {
+    uptime: `${uptime.toFixed(1)}%`,
+    activeIncidents,
+    engineersOnCall,
+    estimatedProductionLoss,
+  }
+}, [engineers, openTickets, riskScore, telemetryState])  // ← telemetryState added
 
   const telemetryContext = useMemo(
     () => buildTelemetryContext(telemetryState, selectedId, logs, summaryLine, tickets, engineers, riskScore, tick),
@@ -924,10 +926,37 @@ function App() {
   }
 
   const printIncidentHistory = () => {
-    if (typeof window !== 'undefined') {
-      window.print()
-    }
-  }
+  const tableHTML = document.querySelector('.incident-table').outerHTML;
+
+  const printWindow = window.open('', '_blank');
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Incident Reports</title>
+        <style>
+          body { font-family: sans-serif; padding: 20px; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; }
+          th { background: #f0f0f0; }
+          .severity-pill { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+          .severity-high { background: #fee2e2; color: #991b1b; }
+          .severity-medium { background: #fef3c7; color: #92400e; }
+          .severity-low { background: #d1fae5; color: #065f46; }
+          .link-btn { display: none; }
+          .expanded-row { display: none; }
+        </style>
+      </head>
+      <body>
+        <h2>Incident Reports</h2>
+        ${tableHTML}
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+  printWindow.close();
+};
 
   const handleLogin = (event) => {
     event.preventDefault()
@@ -1046,8 +1075,8 @@ function App() {
   return (
   <div className="ops-shell">
   <header className="topbar surface" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-  <div>
-    <h1>Flare</h1>
+  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+    <img src="/image.png" alt="logo" style={{ height: '40px' }} />
   </div>
 
   <div className={`risk-chip risk-chip-${riskBand}`}>
@@ -1057,7 +1086,6 @@ function App() {
 
   <div className="topbar-controls">
     <div className="user-badge">
-      <span>{authUser.role.toUpperCase()}</span>
       <strong>{authUser.name}</strong>
       <button type="button" className="link-btn" onClick={handleLogout}>
         Logout
@@ -1289,14 +1317,6 @@ function App() {
                   ))}
                 </div>
 
-                <div className="controls">
-                  <button className="btn btn-danger" type="button" onClick={injectFault}>
-                    {`INJECT FAULT${openTickets.length ? ` (${openTickets.length})` : ''}`}
-                  </button>
-                  <button className="btn" type="button" onClick={resetAll}>
-                    RESET
-                  </button>
-                </div>
               </aside>
 
               <aside className="surface ai-panel">
