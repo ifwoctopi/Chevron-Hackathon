@@ -127,31 +127,49 @@ textarea {
 }
 
 .topbar {
-  padding: 18px 20px;
+  top: 0;
+  z-index: 20;
+  padding: 12px 18px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 10px 18px;
+  align-items: center;
+  background: rgba(9, 14, 22, 0.9);
+  backdrop-filter: blur(10px);
+}
+
+.topbar-brand {
+  grid-column: 1 / 2;
+  grid-row: 1 / 2;
+}
+
+.topbar-title-row {
   display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .topbar h1 {
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 44px;
+  font-size: 28px;
   letter-spacing: 0.02em;
   color: #f2fbff;
+  margin: 0;
 }
 
 .topbar-subtitle {
-  max-width: 840px;
-  margin-top: 8px;
-  color: var(--muted);
-  line-height: 1.5;
+  display: none;
 }
 
 .topbar-controls {
-  display: grid;
-  gap: 12px;
-  min-width: 320px;
+  grid-column: 2 / 3;
+  grid-row: 1 / 2;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: flex-end;
 }
 
 .user-badge {
@@ -232,23 +250,26 @@ textarea {
 }
 
 .risk-chip {
-  border-radius: 18px;
-  padding: 12px 16px;
-  display: grid;
+  border-radius: 999px;
+  padding: 8px 12px;
+  display: inline-grid;
   gap: 4px;
-  min-width: 160px;
+  min-width: 140px;
+  justify-items: center;
 }
 
 .risk-chip span {
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: 10px;
+  letter-spacing: 0.1em;
   color: rgba(255, 255, 255, 0.78);
   font-family: 'Share Tech Mono', monospace;
+  text-transform: uppercase;
 }
 
 .risk-chip strong {
-  font-size: 34px;
+  font-size: 22px;
   font-family: 'Barlow Condensed', sans-serif;
+  line-height: 1;
 }
 
 .risk-chip-ok {
@@ -267,17 +288,34 @@ textarea {
 }
 
 .kpi-strip {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  padding-top: 6px;
+  align-items: center;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.kpi-strip::-webkit-scrollbar {
+  height: 6px;
+}
+
+.kpi-strip::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
 }
 
 .metric-card {
-  background: linear-gradient(180deg, rgba(15, 26, 38, 0.98), rgba(11, 18, 27, 0.98));
+  background: rgba(15, 26, 38, 0.88);
   border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 14px 16px;
-  min-height: 120px;
+  border-radius: 999px;
+  padding: 8px 14px;
+  min-height: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 150px;
 }
 
 .metric-card-ok {
@@ -294,23 +332,20 @@ textarea {
 
 .metric-label {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 10px;
   font-family: 'Share Tech Mono', monospace;
   letter-spacing: 0.1em;
 }
 
 .metric-value {
-  margin-top: 12px;
-  font-size: 44px;
+  font-size: 18px;
   font-family: 'Barlow Condensed', sans-serif;
   color: #f7fdff;
+  margin-top: 0;
 }
 
 .metric-detail {
-  margin-top: 8px;
-  color: var(--muted);
-  line-height: 1.45;
-  font-size: 13px;
+  display: none;
 }
 
 .tab-strip {
@@ -322,6 +357,8 @@ textarea {
 .tab-strip button {
   background: rgba(12, 20, 29, 0.9);
   border: 1px solid var(--border);
+  padding: 8px 12px;
+  font-size: 13px;
 }
 
 .manager-grid {
@@ -348,9 +385,9 @@ textarea {
 
 .map-surface {
   position: relative;
-  min-height: 720px;
   overflow: hidden;
   background: radial-gradient(circle at 35% 20%, #0e1b2a, #09111b 62%);
+  height: calc(100vh - 130px); /* match your telemetry-rail height */
 }
 
 .map-title {
@@ -456,7 +493,6 @@ textarea {
 .ai-panel {
   display: flex;
   flex-direction: column;
-  min-height: 720px;
 }
 
 .pump-list,
@@ -865,6 +901,16 @@ textarea {
   gap: 16px;
 }
 
+/* Pump history only needs two columns so it doesn't leave a large empty 3rd panel */
+.history-grid {
+  grid-template-columns: 340px minmax(0, 1.2fr);
+}
+
+/* When no ticket is active on the engineer side, collapse the middle column */
+.engineer-workspace.no-assignment {
+  grid-template-columns: 360px minmax(0, 1fr);
+}
+
 .account-admin {
   margin: 16px;
   padding: 14px;
@@ -1197,3 +1243,36 @@ textarea {
     font-size: 16px;
   }
 }
+ .telemetry-rail {
+  display: flex;
+  flex-direction: column;
+  height: 100vh; /* or whatever height your layout gives it */
+  overflow: hidden;
+  height: calc(100vh - 130px); /* topbar + kpi strip + padding */
+}
+
+.pump-list {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+  height: calc(100% - 200px); /* 60px = panel header height */
+  overflow-y: auto;
+}
+
+.pump-list::-webkit-scrollbar { width: 2px; }
+.pump-list::-webkit-scrollbar-track { background: transparent; }
+.pump-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 999px; }
+
+.ai-chat-feed {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 300px; /* adjust to taste */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+.ai-chat-feed::-webkit-scrollbar { width: 2px; }
+.ai-chat-feed::-webkit-scrollbar-track { background: transparent; }
+.ai-chat-feed::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 999px; }
+
