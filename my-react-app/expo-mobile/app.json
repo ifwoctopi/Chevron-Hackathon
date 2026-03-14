@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "FLARE Mobile",
+    "slug": "flare-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.chevronhack.flaremobile"
+    },
+    "android": {
+      "package": "com.chevronhack.flaremobile"
+    }
+  }
+}
