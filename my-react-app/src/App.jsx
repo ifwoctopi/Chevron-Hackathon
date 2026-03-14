@@ -1335,10 +1335,37 @@ function App() {
   }
 
   const printIncidentHistory = () => {
-    if (typeof window !== 'undefined') {
-      window.print()
-    }
-  }
+  const tableHTML = document.querySelector('.incident-table').outerHTML;
+
+  const printWindow = window.open('', '_blank');
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Incident Reports</title>
+        <style>
+          body { font-family: sans-serif; padding: 20px; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; }
+          th { background: #f0f0f0; }
+          .severity-pill { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+          .severity-high { background: #fee2e2; color: #991b1b; }
+          .severity-medium { background: #fef3c7; color: #92400e; }
+          .severity-low { background: #d1fae5; color: #065f46; }
+          .link-btn { display: none; }
+          .expanded-row { display: none; }
+        </style>
+      </head>
+      <body>
+        <h2>Incident Reports</h2>
+        ${tableHTML}
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+  printWindow.close();
+};
 
   const handleLogin = (event) => {
     event.preventDefault()
@@ -1485,8 +1512,8 @@ function App() {
   return (
   <div className="ops-shell">
   <header className="topbar surface" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-  <div>
-    <h1>Flare</h1>
+  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+    <img src="/image.png" alt="logo" style={{ height: '40px' }} />
   </div>
 
   <div className={`risk-chip risk-chip-${riskBand}`}>
