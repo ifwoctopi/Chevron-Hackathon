@@ -443,7 +443,7 @@ function deriveEngineers(engineerProfiles, tickets, tick) {
     if (!assignment) {
       return {
         ...engineer,
-        status: engineer.isActive ? (engineer.onCall ? 'On Call' : 'Available') : 'Off Shift',
+        status: engineer.isActive ? (engineer.onCall ? 'On Call' : 'Active') : 'Offline',
         location: engineer.currentLocation,
         currentAssignment: 'None',
         etaMinutes: engineer.onCall && engineer.isActive ? engineer.etaMinutes : null,
@@ -479,7 +479,7 @@ function deriveEngineers(engineerProfiles, tickets, tick) {
 
 function recommendEngineerForPump(pump, engineers) {
   const ranked = [...engineers]
-    .filter((engineer) => engineer.status !== 'Off Shift')
+    .filter((engineer) => engineer.status !== 'Offline')
     .sort((left, right) => scoreEngineer(right, pump) - scoreEngineer(left, pump))
 
   return ranked[0] ?? null
@@ -488,7 +488,7 @@ function recommendEngineerForPump(pump, engineers) {
 function scoreEngineer(engineer, pump) {
   let score = 0
   if (engineer.homeZone === pump.zone) score += 4
-  if (engineer.status === 'Available') score += 5
+  if (engineer.status === 'Active') score += 5
   if (engineer.status === 'On Call') score += 2
   if (engineer.skillset.some((skill) => pump.name.toLowerCase().includes(skill.split(' ')[0].toLowerCase()))) {
     score += 3
@@ -602,8 +602,9 @@ function App() {
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
   const [loginError, setLoginError] = useState('')
   const [accountModalOpen, setAccountModalOpen] = useState(false)
-  const [accountModalForm, setAccountModalForm] = useState({ name: '', username: '', password: '' })
+  const [accountModalForm, setAccountModalForm] = useState({ name: '', username: '', password: '', currentPassword: '' })
   const [accountModalNotice, setAccountModalNotice] = useState('')
+  const [lightMode, setLightMode] = useState(false)
   const [managerTicketFilter, setManagerTicketFilter] = useState('all')
   const [engineerTab, setEngineerTab] = useState('myTickets')
 
@@ -732,10 +733,14 @@ function App() {
           etaMinutes: profile.onCall && profile.etaMinutes > 0 ? profile.etaMinutes - 1 : profile.etaMinutes,
         })),
       )
-    }, 1500)
+    }, 3000)
 
     return () => clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', lightMode ? 'light' : 'dark')
+  }, [lightMode])
 
   useEffect(() => {
     if (tick === 0) return
@@ -965,7 +970,7 @@ function App() {
   const kpis = useMemo(() => {
     const activeIncidents = openTickets.length
     const uptime = clamp(99.3 - activeIncidents * 1.8 - riskScore * 0.03, 82.1, 99.9)
-    const engineersOnCall = engineers.filter((engineer) => engineer.status !== 'Off Shift').length
+    const engineersOnCall = engineers.filter((engineer) => engineer.status !== 'Offline').length
     const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000
     const incidents24h = tickets.filter((ticket) => new Date(ticket.openedAt).getTime() >= twentyFourHoursAgo)
     const estimatedProductionLoss = incidents24h.reduce((sum, ticket) => {
@@ -1407,15 +1412,25 @@ function App() {
     const nextName = accountModalForm.name.trim()
     const nextUsername = accountModalForm.username.trim().toLowerCase()
     const nextPassword = accountModalForm.password.trim()
-    if (!nextName || !nextUsername || !nextPassword) {
-      setAccountModalNotice('Name, username, and password are required.')
+    const enteredCurrentPassword = accountModalForm.currentPassword.trim()
+    if (!nextName || !nextUsername) {
+      setAccountModalNotice('Name and username are required.')
       return
     }
+    if (nextPassword && !enteredCurrentPassword) {
+      setAccountModalNotice('Enter your current password to set a new one.')
+      return
+    }
+    if (enteredCurrentPassword && enteredCurrentPassword !== authUser.password) {
+      setAccountModalNotice('Current password is incorrect.')
+      return
+    }
+    const resolvedPassword = nextPassword || authUser.password
 
     setAccounts((previous) =>
       previous.map((account) =>
         account.id === authUser.id
-          ? { ...account, name: nextName, username: nextUsername, password: nextPassword }
+          ? { ...account, name: nextName, username: nextUsername, password: resolvedPassword }
           : account,
       ),
     )
@@ -1426,7 +1441,7 @@ function App() {
         ),
       )
     }
-    setAuthUser((previous) => (previous ? { ...previous, name: nextName, username: nextUsername, password: nextPassword } : previous))
+    setAuthUser((previous) => (previous ? { ...previous, name: nextName, username: nextUsername, password: resolvedPassword } : previous))
     setAccountModalNotice('Account updated.')
   }
 
@@ -1457,7 +1472,8 @@ function App() {
     setAccountModalForm({
       name: authUser.name,
       username: authUser.username,
-      password: authUser.password,
+      password: '',
+      currentPassword: '',
     })
     setAccountModalNotice('')
     setAccountModalOpen(true)
@@ -1510,29 +1526,41 @@ function App() {
   }
 
   return (
-  <div className="ops-shell">
-  <header className="topbar surface" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-    <img src="/image.png" alt="logo" style={{ height: '40px' }} />
-  </div>
+    <div className="ops-shell">
+      <header className="topbar surface">
+        <div className="topbar-left">
+          <img src="/image.png" alt="logo" className="topbar-logo" />
+          <div className="topbar-brand-copy">
+            <div className="eyebrow">FLARE</div>
+            <h1>Operations Command Center</h1>
+          </div>
+        </div>
 
-  <div className={`risk-chip risk-chip-${riskBand}`}>
-    <span>Risk Heat Score</span>
-    <strong>{riskScore}</strong>
-  </div>
+        <div className={`risk-chip risk-chip-${riskBand} topbar-risk-chip`}>
+          <span>Risk Heat Score</span>
+          <strong>{riskScore}</strong>
+        </div>
 
-  <div className="topbar-controls">
-    <div className="user-badge">
-      <span>{authUser.role.toUpperCase()}</span>
-      <button type="button" className="user-name-btn" onClick={openAccountModal}>
-        {authUser.name}
-      </button>
-      <button type="button" className="link-btn" onClick={handleLogout}>
-        Logout
-      </button>
-    </div>
-  </div>
-</header>
+        <div className="topbar-controls">
+          <button
+            type="button"
+            className="theme-toggle-btn"
+            onClick={() => setLightMode((previous) => !previous)}
+            title="Toggle light / dark mode"
+          >
+            {lightMode ? '🌙' : '☀️'}
+          </button>
+          <div className="user-badge">
+            <span>{authUser.role.toUpperCase()}</span>
+            <button type="button" className="user-name-btn" onClick={openAccountModal}>
+              {authUser.name}
+            </button>
+            <button type="button" className="link-btn" onClick={handleLogout}>
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
       <section className="kpi-strip">
         <MetricCard label="Uptime %" value={kpis.uptime} detail="Rolling 24h asset availability" tone="ok" />
         <MetricCard
@@ -1590,8 +1618,8 @@ function App() {
                     </filter>
                   </defs>
 
-                  <rect width="700" height="500" fill="#060d14" />
-                  <g stroke="#0d1a24" strokeWidth="0.5" opacity="0.7">
+                  <rect width="700" height="500" fill={lightMode ? '#dce8f5' : '#060d14'} />
+                  <g stroke={lightMode ? '#bfd0e3' : '#0d1a24'} strokeWidth="0.5" opacity="0.7">
                     <line x1="0" y1="50" x2="700" y2="50" />
                     <line x1="0" y1="100" x2="700" y2="100" />
                     <line x1="0" y1="150" x2="700" y2="150" />
@@ -1613,16 +1641,16 @@ function App() {
                   </g>
                   <polygon
                     points="120,420 90,340 110,260 160,200 200,160 280,120 360,100 440,110 520,140 570,200 590,270 570,350 530,410 460,450 380,460 300,455 220,450 160,440"
-                    fill="#0f1e12"
-                    stroke="#1a3020"
+                    fill={lightMode ? '#e9f1dc' : '#0f1e12'}
+                    stroke={lightMode ? '#a9be97' : '#1a3020'}
                     strokeWidth="1.5"
                   />
                   <polygon
                     points="220,240 260,200 320,190 380,200 420,230 400,270 360,280 300,285 260,270"
-                    fill="#142018"
+                    fill={lightMode ? '#dfe9d4' : '#142018'}
                   />
-                  <polygon points="300,160 340,150 380,165 360,195 320,195 295,180" fill="#142018" />
-                  <g stroke="#1e3028" strokeWidth="1.5" strokeDasharray="6,3" fill="none" opacity="0.8">
+                  <polygon points="300,160 340,150 380,165 360,195 320,195 295,180" fill={lightMode ? '#dfe9d4' : '#142018'} />
+                  <g stroke={lightMode ? '#9fb2a1' : '#1e3028'} strokeWidth="1.5" strokeDasharray="6,3" fill="none" opacity="0.8">
                     <path d="M200,380 Q250,320 300,280 Q360,250 420,240" />
                     <path d="M300,280 Q290,230 280,180" />
                     <path d="M420,240 Q470,260 500,310" />
@@ -1657,7 +1685,7 @@ function App() {
                         )}
                         <circle
                           r={isSelected ? 13 : 11}
-                          fill="#0a0e14"
+                          fill={lightMode ? '#f7fbff' : '#0a0e14'}
                           stroke={color}
                           strokeWidth={isSelected ? 2 : 1.5}
                           filter={isSelected ? 'url(#glow)' : undefined}
@@ -2216,7 +2244,7 @@ function App() {
           </nav>
 
           {engineerTab === 'myTickets' && (
-            <section className="manager-split-grid">
+            <section className="manager-split-grid ticket-workspace">
               <div className="surface tickets-column">
                 <div className="panel-header">
                   <div>
@@ -2254,7 +2282,7 @@ function App() {
               <div className="surface ticket-detail-column">
                 {selectedTicket ? (
                   <>
-                    <div className="panel-header">
+                    <div className="panel-header panel-header-spread">
                       <div>
                         <div className="eyebrow">LIVE TICKET</div>
                         <h2>{selectedTicket.id}</h2>
@@ -2264,6 +2292,7 @@ function App() {
                     <StagePipeline stage={getTicketStage(selectedTicket, tick)} />
                     <div className="controls">
                       <select
+                        className="ticket-control-select"
                         value={selectedTicket.workflowStatus || 'in_progress'}
                         onChange={(event) => updateTicketStatus(selectedTicket.id, event.target.value)}
                       >
@@ -2309,46 +2338,46 @@ function App() {
                   </div>
                 </div>
                 {ownEngineerProfile ? (
-                  <div className="ticket-update-box">
-                    <label>
+                  <div className="ticket-update-box profile-editor">
+                    <label className="profile-field">
                       Is Active
                       <select
-                        value={ownEngineerProfile.isActive ? 'true' : 'false'}
-                        onChange={(event) => updateEngineerProfile(ownEngineerProfile.id, { isActive: event.target.value === 'true' })}
+                        className="ticket-control-select"
+                        value={ownEngineerProfile.isActive ? 'active' : 'offline'}
+                        onChange={(event) =>
+                          updateEngineerProfile(ownEngineerProfile.id, { isActive: event.target.value === 'active' })
+                        }
                       >
-                        <option value="true">true</option>
-                        <option value="false">false</option>
+                        <option value="active">Active</option>
+                        <option value="offline">Offline</option>
                       </select>
                     </label>
-                    <label>
+                    <label className="profile-field">
                       On Call
                       <select
-                        value={ownEngineerProfile.onCall ? 'true' : 'false'}
-                        onChange={(event) => updateEngineerProfile(ownEngineerProfile.id, { onCall: event.target.value === 'true' })}
+                        className="ticket-control-select"
+                        value={ownEngineerProfile.onCall ? 'on_call' : 'off_call'}
+                        onChange={(event) =>
+                          updateEngineerProfile(ownEngineerProfile.id, { onCall: event.target.value === 'on_call' })
+                        }
                       >
-                        <option value="true">true</option>
-                        <option value="false">false</option>
+                        <option value="on_call">On Call</option>
+                        <option value="off_call">Off Call</option>
                       </select>
                     </label>
-                    <label>
+                    <label className="profile-field">
                       Current Location
                       <input
+                        className="profile-text-input"
                         type="text"
                         value={ownEngineerProfile.currentLocation}
                         onChange={(event) => updateEngineerProfile(ownEngineerProfile.id, { currentLocation: event.target.value })}
                       />
                     </label>
-                    <label>
-                      Profile Photo URL
-                      <input
-                        type="text"
-                        value={ownEngineerProfile.profilePhoto}
-                        onChange={(event) => updateEngineerProfile(ownEngineerProfile.id, { profilePhoto: event.target.value })}
-                      />
-                    </label>
-                    <label>
+                    <label className="profile-field">
                       ETA Minutes
                       <input
+                        className="profile-text-input"
                         type="number"
                         min="0"
                         value={ownEngineerProfile.etaMinutes}
@@ -2374,14 +2403,97 @@ function App() {
                   <span>{clock}</span>
                 </div>
                 <svg className="island-map" viewBox="0 0 700 500" role="img" aria-label="Pump telemetry map">
-                  <rect width="700" height="500" fill="#060d14" />
+                  <defs>
+                    <filter id="glow">
+                      <feGaussianBlur stdDeviation="3" result="blur" />
+                      <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
+                  </defs>
+
+                  <rect width="700" height="500" fill={lightMode ? '#dce8f5' : '#060d14'} />
+                  <g stroke={lightMode ? '#bfd0e3' : '#0d1a24'} strokeWidth="0.5" opacity="0.7">
+                    <line x1="0" y1="50" x2="700" y2="50" />
+                    <line x1="0" y1="100" x2="700" y2="100" />
+                    <line x1="0" y1="150" x2="700" y2="150" />
+                    <line x1="0" y1="200" x2="700" y2="200" />
+                    <line x1="0" y1="250" x2="700" y2="250" />
+                    <line x1="0" y1="300" x2="700" y2="300" />
+                    <line x1="0" y1="350" x2="700" y2="350" />
+                    <line x1="0" y1="400" x2="700" y2="400" />
+                    <line x1="0" y1="450" x2="700" y2="450" />
+                    <line x1="70" y1="0" x2="70" y2="500" />
+                    <line x1="140" y1="0" x2="140" y2="500" />
+                    <line x1="210" y1="0" x2="210" y2="500" />
+                    <line x1="280" y1="0" x2="280" y2="500" />
+                    <line x1="350" y1="0" x2="350" y2="500" />
+                    <line x1="420" y1="0" x2="420" y2="500" />
+                    <line x1="490" y1="0" x2="490" y2="500" />
+                    <line x1="560" y1="0" x2="560" y2="500" />
+                    <line x1="630" y1="0" x2="630" y2="500" />
+                  </g>
+                  <polygon
+                    points="120,420 90,340 110,260 160,200 200,160 280,120 360,100 440,110 520,140 570,200 590,270 570,350 530,410 460,450 380,460 300,455 220,450 160,440"
+                    fill={lightMode ? '#e9f1dc' : '#0f1e12'}
+                    stroke={lightMode ? '#a9be97' : '#1a3020'}
+                    strokeWidth="1.5"
+                  />
+                  <polygon
+                    points="220,240 260,200 320,190 380,200 420,230 400,270 360,280 300,285 260,270"
+                    fill={lightMode ? '#dfe9d4' : '#142018'}
+                  />
+                  <polygon points="300,160 340,150 380,165 360,195 320,195 295,180" fill={lightMode ? '#dfe9d4' : '#142018'} />
+                  <g stroke={lightMode ? '#9fb2a1' : '#1e3028'} strokeWidth="1.5" strokeDasharray="6,3" fill="none" opacity="0.8">
+                    <path d="M200,380 Q250,320 300,280 Q360,250 420,240" />
+                    <path d="M300,280 Q290,230 280,180" />
+                    <path d="M420,240 Q470,260 500,310" />
+                    <path d="M200,380 Q180,340 190,300 Q200,260 220,240" />
+                  </g>
                   {telemetryState.map((pump) => {
                     const status = getStatus(pump)
-                    const color = status === 'crit' ? '#ff3b3b' : status === 'warn' ? '#ffaa00' : '#00e87a'
+                    const color =
+                      status === 'crit' ? '#ff3b3b' : status === 'warn' ? '#ffaa00' : '#00e87a'
+                    const isSelected = pump.id === selectedId
+
                     return (
-                      <g key={pump.id} transform={`translate(${pump.x},${pump.y})`} onClick={() => setSelectedId(pump.id)}>
-                        <circle r="11" fill="#0a0e14" stroke={color} strokeWidth="1.5" />
+                      <g
+                        key={pump.id}
+                        className="pump-marker"
+                        transform={`translate(${pump.x},${pump.y})`}
+                        onClick={() => {
+                          setSelectedId(pump.id)
+                          setPumpHistoryFocus(pump.id)
+                        }}
+                      >
+                        {(status === 'crit' || status === 'warn') && (
+                          <circle
+                            className="pulse-ring"
+                            r="14"
+                            fill="none"
+                            stroke={color}
+                            strokeWidth="1.5"
+                            opacity="0.6"
+                          />
+                        )}
+                        <circle
+                          r={isSelected ? 13 : 11}
+                          fill={lightMode ? '#f7fbff' : '#0a0e14'}
+                          stroke={color}
+                          strokeWidth={isSelected ? 2 : 1.5}
+                          filter={isSelected ? 'url(#glow)' : undefined}
+                        />
                         <circle r="5" fill={color} />
+                        <text
+                          y="-18"
+                          textAnchor="middle"
+                          fontSize="10"
+                          fontFamily="Share Tech Mono, monospace"
+                          fill={color}
+                        >
+                          {`${pump.id} ${Math.round(pump.temp)} degC`}
+                        </text>
                       </g>
                     )
                   })}
@@ -2394,20 +2506,69 @@ function App() {
                     <div className="eyebrow">LIVE TELEMETRY</div>
                   </div>
                 </div>
+
                 <div className="pump-list">
                   {telemetryState.map((pump) => {
                     const status = getStatus(pump)
+                    const tempPct = Math.min(100, ((pump.temp - 60) / 70) * 100)
+                    const barColor =
+                      status === 'crit' ? 'var(--crit)' : status === 'warn' ? 'var(--warn)' : 'var(--ok)'
+
                     return (
-                      <button key={pump.id} type="button" className={`pump-card ${status}`} onClick={() => setPumpHistoryFocus(pump.id)}>
+                      <button
+                        key={pump.id}
+                        type="button"
+                        className={`pump-card ${status} ${pump.id === selectedId ? 'selected' : ''}`}
+                        onClick={() => {
+                          setSelectedId(pump.id)
+                          setPumpHistoryFocus(pump.id)
+                        }}
+                      >
                         <div className="pump-card-header">
-                          <span className="pump-id">{pump.id}</span>
+                          <span className="pump-id">
+                            {pump.id} <span className="pump-name">{pump.name}</span>
+                          </span>
                           <span className={`pump-status status-${status}`}>{status.toUpperCase()}</span>
                         </div>
-                        <div className="pump-metric-label">Temp {Math.round(pump.temp)} degC</div>
+                        <div className="pump-metrics">
+                          <div className="pump-metric">
+                            <div className="pump-metric-label">TEMP degC</div>
+                            <div className={`pump-metric-val ${getValClass(pump.temp, T_WARN, T_CRIT)}`}>
+                              {Math.round(pump.temp)}
+                            </div>
+                          </div>
+                          <div className="pump-metric">
+                            <div className="pump-metric-label">FLOW L/MIN</div>
+                            <div className={`pump-metric-val ${getValClass(310 - pump.flow, 70, 130)}`}>
+                              {Math.round(pump.flow)}
+                            </div>
+                          </div>
+                          <div className="pump-metric">
+                            <div className="pump-metric-label">PRESSURE PSI</div>
+                            <div className={`pump-metric-val ${getValClass(145 - pump.pressure, 30, 45)}`}>
+                              {Math.round(pump.pressure)}
+                            </div>
+                          </div>
+                          <div className="pump-metric">
+                            <div className="pump-metric-label">VIBRATION Hz</div>
+                            <div className={`pump-metric-val ${getValClass(pump.vibe, V_WARN, V_CRIT)}`}>
+                              {Math.round(pump.vibe)}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="temp-bar-wrap">
+                          <div className="temp-bar-bg">
+                            <div
+                              className="temp-bar-fill"
+                              style={{ width: `${tempPct.toFixed(1)}%`, background: barColor }}
+                            ></div>
+                          </div>
+                        </div>
                       </button>
                     )
                   })}
                 </div>
+
                 <div className="log-area">
                   <h3>EVENT LOG</h3>
                   {logs.map((entry) => (
@@ -2422,9 +2583,10 @@ function App() {
               <aside className="surface ai-panel">
                 <div className="panel-header">
                   <div>
-                    <div className="eyebrow">ASSISTED CONTEXT</div>
+                    <div className="eyebrow">LIVE QA VIA AI</div>
                   </div>
                 </div>
+
                 <div className="ai-context">
                   <h3>LIVE CONTEXT SNAPSHOT</h3>
                   <p>
@@ -2432,6 +2594,36 @@ function App() {
                   </p>
                   <p className="ai-summary">{summaryLine}</p>
                 </div>
+
+                <div className="ai-chat-feed">
+                  {chatMessages.map((message) => (
+                    <div key={message.id} className={`ai-msg ai-msg-${message.role}`}>
+                      <div className="ai-msg-meta">
+                        <span>{message.role.toUpperCase()}</span>
+                        <span>{message.ts}</span>
+                      </div>
+                      <p>{message.text}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <form
+                  className="ai-input-wrap"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    sendToAi()
+                  }}
+                >
+                  <textarea
+                    value={chatInput}
+                    onChange={(event) => setChatInput(event.target.value)}
+                    className="ai-input"
+                    placeholder="Ask Flare about anomalies, dispatch choices, production impact, or maintenance recommendations..."
+                  ></textarea>
+                  <button type="submit" className="btn" disabled={isAiBusy || !chatInput.trim()}>
+                    {isAiBusy ? 'THINKING...' : 'ASK FLARE'}
+                  </button>
+                </form>
               </aside>
             </section>
           )}
@@ -2443,7 +2635,53 @@ function App() {
                   <div className="eyebrow">ALL TICKET HISTORY LOG</div>
                   <h2>Incident Reports</h2>
                 </div>
+                <button type="button" className="btn narrow-btn" onClick={printIncidentHistory}>
+                  EXPORT TO PDF
+                </button>
               </div>
+
+              <div className="filter-bar">
+                <select
+                  value={historyFilters.pump}
+                  onChange={(event) => setHistoryFilters((previous) => ({ ...previous, pump: event.target.value }))}
+                >
+                  <option value="all">All Pumps</option>
+                  {PUMPS.map((pump) => (
+                    <option key={pump.id} value={pump.id}>
+                      {pump.id}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={historyFilters.severity}
+                  onChange={(event) => setHistoryFilters((previous) => ({ ...previous, severity: event.target.value }))}
+                >
+                  <option value="all">All Severities</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+                <select
+                  value={historyFilters.dateRange}
+                  onChange={(event) => setHistoryFilters((previous) => ({ ...previous, dateRange: event.target.value }))}
+                >
+                  <option value="24h">Last 24h</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                  <option value="all">All dates</option>
+                </select>
+                <select
+                  value={historyFilters.resolution}
+                  onChange={(event) =>
+                    setHistoryFilters((previous) => ({ ...previous, resolution: event.target.value }))
+                  }
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="open">Open</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+              </div>
+
               <div className="table-shell">
                 <table className="incident-table">
                   <thead>
@@ -2458,17 +2696,40 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredHistory.map((ticket) => (
-                      <tr key={ticket.id}>
-                        <td>{ticket.id}</td>
-                        <td>{ticket.pumpId}</td>
-                        <td>{ticket.severity}</td>
-                        <td>{formatDate(ticket.openedAt)}</td>
-                        <td>{ticket.status}</td>
-                        <td>{ticket.status === 'resolved' ? `${getOpenMinutes(ticket, tick)} min` : '--'}</td>
-                        <td>{ticket.report}</td>
-                      </tr>
-                    ))}
+                    {filteredHistory.map((ticket) => {
+                      const expanded = expandedReports.includes(ticket.id)
+                      return (
+                        <>
+                          <tr key={ticket.id}>
+                            <td>{ticket.id}</td>
+                            <td>{ticket.pumpId}</td>
+                            <td>
+                              <span className={`severity-pill severity-${ticket.severity}`}>{ticket.severity}</span>
+                            </td>
+                            <td>{formatDate(ticket.openedAt)}</td>
+                            <td>{ticket.status}</td>
+                            <td>{ticket.status === 'resolved' ? `${getOpenMinutes(ticket, tick)} min` : '--'}</td>
+                            <td>
+                              <button type="button" className="link-btn" onClick={() => toggleReportExpansion(ticket.id)}>
+                                {expanded ? 'Hide' : 'Expand'}
+                              </button>
+                            </td>
+                          </tr>
+                          {expanded && (
+                            <tr key={`${ticket.id}-expanded`} className="expanded-row">
+                              <td colSpan="7">
+                                <div className="report-body">{ticket.report}</div>
+                                {ticket.reportedSnapshot ? (
+                                  <div className="report-body" style={{ marginTop: '8px', color: '#9ec5d8' }}>
+                                    Snapshot {formatDate(ticket.reportedSnapshot.capturedAt)}: {ticket.reportedSnapshot.status.toUpperCase()} · temp {ticket.reportedSnapshot.temp} degC · pressure {ticket.reportedSnapshot.pressure} psi · flow {ticket.reportedSnapshot.flow} L/min · vibe {ticket.reportedSnapshot.vibe} Hz
+                                  </div>
+                                ) : null}
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2510,7 +2771,7 @@ function App() {
                   <>
                     <div className="panel-header">
                       <div>
-                        <div className="eyebrow">CURRENT HISTORY DETAIL</div>
+                        <div className="eyebrow">PREDICTIVE MAINTENANCE LAYER</div>
                         <h2>{selectedPumpHistory.id}</h2>
                       </div>
                       <p>{selectedPumpHistory.name}</p>
@@ -2524,6 +2785,37 @@ function App() {
                         <span>Sensor Reliability</span>
                         <strong>{selectedPumpHistory.sensorReliability}%</strong>
                       </div>
+                      <div className="detail-chip">
+                        <span>Failure Frequency</span>
+                        <strong>{selectedPumpHistory.failures90d} / 90d</strong>
+                      </div>
+                      <div className="detail-chip">
+                        <span>Zone</span>
+                        <strong>{selectedPumpHistory.zone}</strong>
+                      </div>
+                    </div>
+
+                    <div className="history-block">
+                      <h3>Maintenance Compliance Tracker</h3>
+                      <div className="compliance-grid">
+                        {selectedPumpHistory.maintenance.map((item, index) => (
+                          <span key={`${selectedPumpHistory.id}-m-${index}`} className={item ? 'ok' : 'missed'}>
+                            {item ? 'OK' : 'MISS'}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="history-block">
+                      <h3>Sensor Reliability Log</h3>
+                      <p>
+                        {selectedPumpHistory.sensorEvents} suspicious sensor events in the recent review window.
+                      </p>
+                    </div>
+
+                    <div className="history-block">
+                      <h3>AI Recommendation</h3>
+                      <p>{selectedPumpHistory.recommendation}</p>
                     </div>
                   </>
                 ) : null}
@@ -2547,24 +2839,42 @@ function App() {
               </button>
             </div>
             <form className="account-form account-form-modal" onSubmit={updateOwnAccount}>
-              <input
-                type="text"
-                placeholder="Name"
-                value={accountModalForm.name}
-                onChange={(event) => setAccountModalForm((previous) => ({ ...previous, name: event.target.value }))}
-              />
-              <input
-                type="text"
-                placeholder="Username"
-                value={accountModalForm.username}
-                onChange={(event) => setAccountModalForm((previous) => ({ ...previous, username: event.target.value }))}
-              />
-              <input
-                type="text"
-                placeholder="Password"
-                value={accountModalForm.password}
-                onChange={(event) => setAccountModalForm((previous) => ({ ...previous, password: event.target.value }))}
-              />
+              <label className="account-field-label">
+                Name
+                <input
+                  type="text"
+                  placeholder="Display name"
+                  value={accountModalForm.name}
+                  onChange={(event) => setAccountModalForm((previous) => ({ ...previous, name: event.target.value }))}
+                />
+              </label>
+              <label className="account-field-label">
+                Username
+                <input
+                  type="text"
+                  placeholder="Login username"
+                  value={accountModalForm.username}
+                  onChange={(event) => setAccountModalForm((previous) => ({ ...previous, username: event.target.value }))}
+                />
+              </label>
+              <label className="account-field-label">
+                Current Password
+                <input
+                  type="password"
+                  placeholder="Enter current password to change it"
+                  value={accountModalForm.currentPassword}
+                  onChange={(event) => setAccountModalForm((previous) => ({ ...previous, currentPassword: event.target.value }))}
+                />
+              </label>
+              <label className="account-field-label">
+                New Password
+                <input
+                  type="password"
+                  placeholder="Leave blank to keep current password"
+                  value={accountModalForm.password}
+                  onChange={(event) => setAccountModalForm((previous) => ({ ...previous, password: event.target.value }))}
+                />
+              </label>
               <button type="submit" className="btn">SAVE ACCOUNT</button>
             </form>
             {accountModalNotice ? <div className="account-notice">{accountModalNotice}</div> : null}
